@@ -1,8 +1,7 @@
+from typing import List
 from pysat.formula import CNF
-from pysat.solvers import Solver
 from pysat.solvers import Glucose3
-from pypblib import pblib
-from pypblib.pblib import PBConfig, Pb2cnf
+import matplotlib.pyplot as plt
 import os
 import pandas as pd
 from openpyxl import Workbook
@@ -10,11 +9,53 @@ from openpyxl import load_workbook
 from zipfile import BadZipFile
 from openpyxl.utils.dataframe import dataframe_to_rows
 from datetime import datetime
-import matplotlib.pyplot as plt
-
-# This version solve rotation and symmetry by using PB_LIB.
 
 id_counter = 0
+
+def write_to_xlsx(result_dict):
+    # Append the result to a list
+    excel_results = []
+    excel_results.append(result_dict)
+
+    output_path =  'output/'
+
+    # Write the results to an Excel file
+    if not os.path.exists(output_path): os.makedirs(output_path)
+
+    df = pd.DataFrame(excel_results)
+    current_date = datetime.now().strftime('%Y-%m-%d')
+    excel_file_path = f"{output_path}/results_{current_date}.xlsx"
+
+    # Check if the file already exists
+    if os.path.exists(excel_file_path):
+        try:
+            book = load_workbook(excel_file_path)
+        except BadZipFile:
+            book = Workbook()  # Create a new workbook if the file is not a valid Excel file
+
+        # Check if the 'Results' sheet exists
+        if 'Results' not in book.sheetnames:
+            book.create_sheet('Results')  # Create 'Results' sheet if it doesn't exist
+
+        sheet = book['Results']
+        for row in dataframe_to_rows(df, index=False, header=False): sheet.append(row)
+        book.save(excel_file_path)
+
+    else: df.to_excel(excel_file_path, index=False, sheet_name='Results', header=False)
+
+def solve_by_pysat(input, time, result, num_var, num_clause, name_lib):
+    global id_counter
+    id_counter += 1
+    result_dict = {
+        "ID": id_counter,
+        "Problem": input,
+        "Type": name_lib,
+        "Time": time,
+        "Result": result,
+        "Variables": num_var,
+        "Clauses": num_clause
+    }
+    write_to_xlsx(result_dict)
 
 def display_solution(strip, rectangles, pos_circuits, rotation):
     # define Matplotlib figure and axis
@@ -277,54 +318,70 @@ def opp_solution(rectangles, strip):
 
         else:
             return ["unsat", elapse_time]
-    
 
-def write_to_xlsx(result_dict):
-    # Append the result to a list
-    excel_results = []
-    excel_results.append(result_dict)
 
-    output_path =  'output/'
+id_variable = 0
+sat_solver = Glucose3()
 
-    # Write the results to an Excel file
-    if not os.path.exists(output_path): os.makedirs(output_path)
+def pos_i(i, k, weight):
+    if i == 0:
+        return 0
+    if i < k:
+        sum_w = sum(weight[1:i+1])
+        return min(k, sum_w)
+    else:
+        return k
 
-    df = pd.DataFrame(excel_results)
-    current_date = datetime.now().strftime('%Y-%m-%d')
-    excel_file_path = f"{output_path}/results_{current_date}.xlsx"
+def plus_clause(clause):
+    sat_solver.add_clause(clause)
 
-    # Check if the file already exists
-    if os.path.exists(excel_file_path):
-        try:
-            book = load_workbook(excel_file_path)
-        except BadZipFile:
-            book = Workbook()  # Create a new workbook if the file is not a valid Excel file
+def atMost_k(vars: List[int], weight: List[int], k):
+    n = len(vars) - 1
+    global id_variable
+    id_variable = n
 
-        # Check if the 'Results' sheet exists
-        if 'Results' not in book.sheetnames:
-            book.create_sheet('Results')  # Create 'Results' sheet if it doesn't exist
+    # Create map_register to hold the auxiliary variables
+    map_register = [[0 for _ in range(k + 1)] for _ in range(n + 1)]
 
-        sheet = book['Results']
-        for row in dataframe_to_rows(df, index=False, header=False): sheet.append(row)
-        book.save(excel_file_path)
+    for i in range(1, n):
+        n_bits = pos_i(i, k, weight)
+        for j in range(1, n_bits + 1):
+            id_variable += 1
+            map_register[i][j] = id_variable
 
-    else: df.to_excel(excel_file_path, index=False, sheet_name='Results', header=False)
+    print("Map register:")
+    print(map_register)
 
-def solve_by_pysat(input, time, result, num_var, num_clause, name_lib):
-    global id_counter
-    id_counter += 1
-    result_dict = {
-        "ID": id_counter,
-        "Problem": input,
-        "Type": name_lib,
-        "Time": time,
-        "Result": result,
-        "Variables": num_var,
-        "Clauses": num_clause
-    }
-    write_to_xlsx(result_dict)
+    # (0) if weight[i] > k => x[i] False
+    for i in range(1, n + 1):
+        if weight[i] > k:
+             plus_clause([-vars[i]])
 
-#  find all solutions of clauses
+    # (1) X_i -> R_i,j for j = 1 to w_i
+    for i in range(1, n):
+        for j in range(1, weight[i] + 1):
+            if j <= pos_i(i, k, weight):
+                plus_clause([-vars[i], map_register[i][j]])
+
+    # (2) R_{i-1,j} -> R_i,j for j = 1 to pos_{i-1}
+    for i in range(2, n):
+        for j in range(1, pos_i(i - 1, k, weight) + 1):
+            plus_clause([-map_register[i - 1][j], map_register[i][j]])
+
+    # (3) X_i ^ R_{i-1,j} -> R_i,j+w_i for j = 1 to pos_{i-1}
+    for i in range(2, n):
+        for j in range(1, pos_i(i - 1, k, weight) + 1):
+            if j + weight[i] <= k and j + weight[i] <= pos_i(i, k, weight):
+                plus_clause([-vars[i], -map_register[i - 1][j], map_register[i][j + weight[i]]])
+
+    # (8) At Most K: X_i -> ¬R_{i-1,k+1-w_i} for i = 2 to n 
+    for i in range(2, n + 1):
+        if k + 1 - weight[i] > 0 and k + 1 - weight[i] <= pos_i(i - 1, k, weight):
+            plus_clause([-vars[i], -map_register[i - 1][k + 1 - weight[i]]])
+
+    #  Find all solutions of At Most K Encoding
+    return find_all_solutions(sat_solver, n)
+
 def find_all_solutions(solver, n_items):
     solutions_set = set() 
     elapsed_time = 0
@@ -351,34 +408,12 @@ def max_profit_solution(rectangles, weights, profits, weight_bound, strip):
     # input data is [width, height, weight, profit] + [MAX_WEIGHT].
     isSat = ""
     num_items = len(weights)
-    vars = list(range(1, num_items + 1))
-
-    # Using PB_LIB
-    pbConfig = PBConfig()
-    pbConfig.set_PB_Encoder(pblib.PB_BDD)
-    pb2 = Pb2cnf(pbConfig)
-
-    # Return formula of constraint <= Weight.
-    formula = []
-    pb2.encode_leq(weights, vars, weight_bound, formula, num_items+1)
-
-    solver = Glucose3(use_timer=True)
-
-    if formula == []:
-        solver.add_clause(vars)
-
-    for clause in formula:
-        solver.add_clause(clause)
-
-    num_vars = solver.nof_vars()
-    num_clauses = solver.nof_clauses()
-    
-    print("Number of variables: ", solver.nof_vars())
-    print("Number of clauses: ", solver.nof_clauses())
+    vars = list(range(0, num_items + 1))
+    var_weight = [0] + weights
     
     # all solutions that satify leq encoding with Weight include empty solution []
     # arr_solution = [set_solution, elapse_time] of find_all_solution with constraints <= Max_weight
-    arr_solution = find_all_solutions(solver, num_items)
+    arr_solution = atMost_k(vars,var_weight, weight_bound)
 
     all_solution = arr_solution[0]
     elapse_time = arr_solution[1]
@@ -386,13 +421,11 @@ def max_profit_solution(rectangles, weights, profits, weight_bound, strip):
     # if no solution or timeout
     if (all_solution == {()}):
         isSat = "unsat"
-        solve_by_pysat(len(weights), elapse_time, isSat, num_vars, num_clauses, "PB_BDD")
-        solver.delete()
+        solve_by_pysat(len(weights), elapse_time, isSat, 0, 0, "SCPB")
         return
     elif elapse_time == "timeout":
         isSat = "timeout"
-        solve_by_pysat(len(weights), "timeout", isSat, num_vars, num_clauses, "PB_BDD")
-        solver.delete()
+        solve_by_pysat(len(weights), "timeout", isSat, 0, 0, "SCPB")
         return
         
     # If exist solution, sort list of rectangles by profit reverse.
@@ -439,11 +472,9 @@ def max_profit_solution(rectangles, weights, profits, weight_bound, strip):
             elapse_time += status[1]
             continue
 
-    solve_by_pysat(len(weights), elapse_time, isSat, num_vars, num_clauses, "PB_BDD")
-    solver.delete()
+    solve_by_pysat(len(weights), elapse_time, isSat, 0, 0, "SCPB")
 
-
-def solve_KPWL_Pblib():
+def solve_KPWL_SCPB():
     with open('../dataset/test_input.txt', 'r') as file:
         # max_weight, min_profit
         # strip
@@ -471,4 +502,4 @@ def solve_KPWL_Pblib():
 
             max_profit_solution(rectangles, weights, profits, weight_bound, strip)
 
-solve_KPWL_Pblib()
+solve_KPWL_SCPB()
