@@ -21,8 +21,11 @@ def display_solution(strip, rectangles, pos_circuits):
 
     if len(pos_circuits) > 0:
         for i in range(len(rectangles)):
-            rect = plt.Rectangle(pos_circuits[i], *rectangles[i], edgecolor="#333")
+            # Add fill color for better visibility
+            rect = plt.Rectangle(pos_circuits[i], *rectangles[i], edgecolor="#333", facecolor="#69b3a2", alpha=0.5)
             ax.add_patch(rect)
+    else:
+        print("No circuits to display.")
 
     ax.set_xlim(0, strip[0])
     ax.set_ylim(0, strip[1] + 1)
@@ -30,6 +33,8 @@ def display_solution(strip, rectangles, pos_circuits):
     ax.set_yticks(range(strip[1] + 1))
     ax.set_xlabel('width')
     ax.set_ylabel('height')
+
+
     # display plot
     plt.show()
 
@@ -94,9 +99,9 @@ def opp_solution(rectangles, strip, profits):
     counter = 1
     n = len(rectangles)
 
-    # X_i = 1 if item i is selected.
+    # a_i = 1 if item i is selected.
     for i in range(n):
-        variables[f"X{i + 1}"] = counter
+        variables[f"a{i + 1}"] = counter
         counter += 1
 
     # create lr, ud, px, py variables from 1 to N.
@@ -122,13 +127,15 @@ def opp_solution(rectangles, strip, profits):
 
     # Add the 2-literal axiom clauses (order constraint)
     # Formula (3).
+    # [Update] if a_i = 1 -> order-encoding.
     for i in range(n):
         for e in range(width - 1):  # -1 because we're using e+1 in the clause
-            cnf.append([-variables[f"X{i + 1}"], -variables[f"px{i + 1},{e}"],
+            cnf.append([-variables[f"a{i + 1}"], -variables[f"px{i + 1},{e}"],
                         variables[f"px{i + 1},{e + 1}"]])
-        for f in range(height - 1):  # -1 because we're using f+1 in the clause
-            cnf.append([-variables[f"X{i + 1}"], -variables[f"py{i + 1},{f}"],
+        for f in range(height - 1):
+            cnf.append([-variables[f"a{i + 1}"], -variables[f"py{i + 1},{f}"],
                         variables[f"py{i + 1},{f + 1}"]])
+            
     # Add the 3-literal non-overlapping constraints
     # Formula (4).
     def non_overlapping(rotated, i, j, h1, h2, v1, v2):
@@ -160,8 +167,7 @@ def opp_solution(rectangles, strip, profits):
         else:
             j_square = False
 
-        # Pick item constraint.
-        extra_cnf = [-variables[f"X{i + 1}"], -variables[f"X{j + 1}"]]
+        extra_cnf = [-variables[f"a{i + 1}"], -variables[f"a{j + 1}"]]
         # lri,j v lrj,i v udi,j v udj,i
         four_literal = []
         if h1: four_literal.append(variables[f"lr{i + 1},{j + 1}"])
@@ -169,8 +175,8 @@ def opp_solution(rectangles, strip, profits):
         if v1: four_literal.append(variables[f"ud{i + 1},{j + 1}"])
         if v2: four_literal.append(variables[f"ud{j + 1},{i + 1}"])
 
-        cnf.append(four_literal + [i_rotation]  + extra_cnf)
-        cnf.append(four_literal + [j_rotation]  + extra_cnf)
+        cnf.append(extra_cnf + four_literal + [i_rotation])
+        cnf.append(extra_cnf + four_literal + [j_rotation])
 
         # ¬lri, j ∨ ¬pxj, e
         if h1 and not i_square:
@@ -183,13 +189,13 @@ def opp_solution(rectangles, strip, profits):
             for e in range(min(width, j_width)):
                     cnf.append(extra_cnf + [j_rotation,
                                 -variables[f"lr{j + 1},{i + 1}"],
-                                -variables[f"px{i + 1},{e}"]]  )
+                                -variables[f"px{i + 1},{e}"]])
         # ¬udi,j ∨ ¬pyj,f
         if v1 and not i_square:
             for f in range(min(height, i_height)):
                     cnf.append(extra_cnf + [i_rotation,
                                 -variables[f"ud{i + 1},{j + 1}"],
-                                -variables[f"py{j + 1},{f}"]] )
+                                -variables[f"py{j + 1},{f}"]])
         # ¬udj, i ∨ ¬pyi, f,
         if v2 and not j_square:
             for f in range(min(height, j_height)):
@@ -223,15 +229,16 @@ def opp_solution(rectangles, strip, profits):
         for f in positive_range(height - j_height):
             # ¬udj,i ∨ ¬pyi,f+hj ∨ pxj,f
             if v2 and not j_square:
-                    cnf.append(extra_cnf + [j_rotation,
-                                -variables[f"ud{j + 1},{i + 1}"],
-                                variables[f"py{j + 1},{f}"],
-                                -variables[f"py{i + 1},{f + j_height}"]])
+                cnf.append(extra_cnf + [j_rotation,
+                            -variables[f"ud{j + 1},{i + 1}"],
+                            variables[f"py{j + 1},{f}"],
+                            -variables[f"py{i + 1},{f + j_height}"]])
 
     for i in range(n):
         for j in range(i + 1, n):
             # lri,j ∨ lrj,i ∨ udi,j ∨ udj,i
             #Large-rectangles horizontal
+            # cnf.append([-variables[f"a{i + 1}"], -variables[f"a{j + 1}"]])
             if min(rectangles[i][0], rectangles[i][1]) + min(rectangles[j][0], rectangles[j][1]) > width:
                 non_overlapping(False, i, j, False, False, True, True)
                 non_overlapping(True, i, j, False, False, True, True)
@@ -257,50 +264,48 @@ def opp_solution(rectangles, strip, profits):
 
    # Domain encoding to ensure every rectangle stays inside strip's boundary
     for i in range(n):
+        # cnf.append([-variables[f"a{i + 1}"]])
         if rectangles[i][0] > width: #if rectangle[i]'s width larger than strip's width, it has to be rotated
-            cnf.append([variables[f"r{i + 1}"]])
+            cnf.append([variables[f"r{i + 1}"], -variables[f"a{i + 1}"]])
         else:
             for e in range(width - rectangles[i][0], width):
                     cnf.append([variables[f"r{i + 1}"],
-                                variables[f"px{i + 1},{e}"]])
+                                variables[f"px{i + 1},{e}"], -variables[f"a{i + 1}"]])
         if rectangles[i][1] > height:
-            cnf.append([variables[f"r{i + 1}"]])
+            cnf.append([variables[f"r{i + 1}"], -variables[f"a{i + 1}"]])
         else:
             for f in range(height - rectangles[i][1], height):
                     cnf.append([variables[f"r{i + 1}"],
-                                variables[f"py{i + 1},{f}"]])
+                                variables[f"py{i + 1},{f}"], -variables[f"a{i + 1}"]])
 
         # Rotated
         if rectangles[i][1] > width:
-            cnf.append([-variables[f"r{i + 1}"]])
+            cnf.append([-variables[f"r{i + 1}"], -variables[f"a{i + 1}"]])
         else:
             for e in range(width - rectangles[i][1], width):
                     cnf.append([-variables[f"r{i + 1}"],
-                                variables[f"px{i + 1},{e}"]])
+                                variables[f"px{i + 1},{e}"], -variables[f"a{i + 1}"]])
         if rectangles[i][0] > height:
-            cnf.append([-variables[f"r{i + 1}"]])
+            cnf.append([-variables[f"r{i + 1}"], -variables[f"a{i + 1}"]])
         else:
             for f in range(height - rectangles[i][0], height):
                 cnf.append([-variables[f"r{i + 1}"],
-                            variables[f"py{i + 1},{f}"]])
+                            variables[f"py{i + 1},{f}"], -variables[f"a{i + 1}"]])
                 
-    # weight constraint of MAXSAT
-    # for i in range(n):
-    #     cnf.append([variables[f"X{i + 1}"]])
-
+    # WCNF weight constraint of MAXSAT
     for i in range(n):
-        cnf.append([variables[f"X{i + 1}"]], weight=profits[i])
+        cnf.append([variables[f"a{i + 1}"]], weight=profits[i])
         
 
     # add all clauses to SAT solver
     start = timeit.default_timer()
-    with RC2(cnf) as rc2: #add all cnf to solver
+    with RC2(cnf) as rc2: # add all cnf to solver
         model = rc2.compute()
     
         print("Cost: ", rc2.cost)
         print("model: ", model)
         if model:
-            pos = [[0 for i in range(2)] for j in range(len(rectangles))]
+            pos = [[-1 for i in range(2)] for j in range(len(rectangles))]
             rotation = []
             print("SAT")
             result = {}
@@ -314,9 +319,13 @@ def opp_solution(rectangles, strip, profits):
             print("\nRectangle Placements:")
             print("-" * 50)
             selected_rectangles = []
+            result_rectangle = []
             total_profit = 0
+            res_pos = []
+
             for i in range(len(rectangles)):
                 rotation.append(result[f"r{i + 1}"])
+                selected_rectangles.append(result[f"a{i + 1}"])
                 for e in range(width - 1):
                     if result[f"px{i + 1},{e}"] == False and result[f"px{i + 1},{e + 1}"] == True:
                         pos[i][0] = e + 1
@@ -329,21 +338,27 @@ def opp_solution(rectangles, strip, profits):
                         pos[i][1] = 0
                 
                 # Print detailed information for each rectangle
-                orig_width, orig_height = rectangles[i][0], rectangles[i][1]
-                if rotation[i]:
-                    orig_width = rectangles[i][1]
-                    orig_height = rectangles[i][0]
-                selected_rectangles.append([orig_width, orig_height])
-                actual_width = orig_height if rotation[i] else orig_width
-                actual_height = orig_width if rotation[i] else orig_height
-                print(f"Rectangle {i+1}:")
-                print(f"  Position: ({pos[i][0]}, {pos[i][1]})")
-                print(f"  Dimensions: {actual_width}x{actual_height} {'(Rotated)' if rotation[i] else ''}")
-                print(f"  Profit: {profits[i]}")
-                total_profit += profits[i]
-                print("-" * 50)
+                if selected_rectangles[i] == True:
+                    orig_width, orig_height = rectangles[i][0], rectangles[i][1]
+                    if rotation[i]:
+                        orig_width = rectangles[i][1]
+                        orig_height = rectangles[i][0]
+                    result_rectangle.append([orig_width, orig_height])
+                    actual_width = rectangles[i][0]
+                    actual_height = rectangles[i][1]
+                    print(f"Rectangle {i+1}:")
+                    print(f"  Position: ({pos[i][0]}, {pos[i][1]})")
+                    res_pos.append([pos[i][0], pos[i][1]])
+                    print(f"  Dimensions: {actual_width}x{actual_height} {'(Rotated)' if rotation[i] else ''}")
+                    print(f"  Profit: {profits[i]}")
+                    total_profit += profits[i]
+                    print("-" * 50)
             print(f"Total profit: {total_profit}")
-            display_solution(strip, selected_rectangles, pos)
+            print("Result rect:", result_rectangle)
+            filtered_positions = [p for p in pos if p != [-1, -1]]
+            print("Positions:", res_pos)  # Debugging line
+            print("Strip dimensions:", strip)  # Debugging line
+            display_solution(strip, result_rectangle, res_pos)
             return(["sat", pos, rotation, solver_time])
         else:
             print("No solution")
