@@ -7,37 +7,12 @@ from openpyxl import load_workbook
 from zipfile import BadZipFile
 from openpyxl.utils.dataframe import dataframe_to_rows
 from datetime import datetime
-from itertools import combinations 
-import matplotlib.pyplot as plt
-
+import time as timead
 
 time_budget = 100
 id_counter = 0
 
-def display_solution(strip, rectangles, pos_circuits):
-    # define Matplotlib figure and axis
-    ax = plt.subplots()
-    ax = plt.gca()
-    plt.title(strip)
-
-    if len(pos_circuits) > 0:
-        for i in range(len(rectangles)):
-            # Add fill color for better visibility
-            rect = plt.Rectangle(pos_circuits[i], *rectangles[i], edgecolor="#333", facecolor="#69b3a2", alpha=0.5)
-            ax.add_patch(rect)
-    else:
-        print("No circuits to display.")
-
-    ax.set_xlim(0, strip[0])
-    ax.set_ylim(0, strip[1] + 1)
-    ax.set_xticks(range(strip[0] + 1))
-    ax.set_yticks(range(strip[1] + 1))
-    ax.set_xlabel('width')
-    ax.set_ylabel('height')
-
-
-    # display plot
-    plt.show()
+def interrupt(s): s.interrupt()
 
 def write_to_xlsx(result_dict):
     # Append the result to a list
@@ -285,19 +260,22 @@ def opp_solution(rectangles, strip):
 
     # add all clauses to SAT solver
     solver = Glucose3()
+    elapse_time = 0
     solver.append_formula(cnf)
     sat_status = solver.solve()
 
     if sat_status is False:
-        # print("No solutions found")
+        elapsed_time = format(solver.time())
+        result = "unsat"
+        time = elapsed_time   
+        print("No solutions found")
         return "unsat"
     else:
-        # Initial result position of rectangles by [-1, -1]
-        pos = [[0 for i in range(2)] for j in range(n)]
-        result = {}
         rotation = []
-
+        elapse_time += solver.time()
+        pos = [[0 for i in range(2)] for j in range(n)]
         model = solver.get_model()
+        result = {}
         for var in model:
             if var > 0:
                 result[list(variables.keys())[list(variables.values()).index(var)]] = True
@@ -322,42 +300,16 @@ def opp_solution(rectangles, strip):
                     print(f"y{i + 1} = 0")
                     pos[i][1] = 0
 
-        print("Solution found", pos)
+        print(pos)
         return "sat"
-
-
-# function to generate all combinations of list rectangle by numberOfItems.
-def findListSumOfProfits(rectangles, numberOfItems):
-    # parameter rectangles: include profit [(width, height, profit)...].
-    result_for_loop = []
-    # Output is [[listOfRects, profitOfThisListRects], ...[]]
-    while numberOfItems > 0:
-        comb = combinations(rectangles, numberOfItems)
-        for var in comb:
-            temp = []
-            rect_in_comb = [(x[0], x[1]) for x in list(var)]
-            profit = sum(x[2] for x in list(var))
-            temp.append(rect_in_comb)
-            temp.append(profit)
-            result_for_loop.append(temp)
-
-        numberOfItems -= 1
-
-    result_for_loop = sorted(result_for_loop, reverse=True, key=lambda x: x[1])
-
-
-    print("Result of function:", result_for_loop)
-    return result_for_loop
-
 
 def max_profit_solution():
     with open('../dataset/dataset.txt', 'r') as file:
         lines = file.readlines()
         len_file = len(lines)
 
-        is_Sol = ""
-
         for i in range(0, len_file, 4):
+            result = ""
             list_strip = list(map(int,lines[i].strip().split()))
             widths = list(map(int, lines[i + 1].strip().split()))
             heights = list(map(int, lines[i + 2].strip().split()))
@@ -369,22 +321,34 @@ def max_profit_solution():
             for j in range (0, num_items):
                 item = (widths[j], heights[j], profits[j])
                 rectangles.append(item)
-            
-            # Update code
-            # input_list sample = [ [ [(1, 3), (2, 1), (2, 1), (1, 1), (1, 2), (1, 1), (1, 1), (6, 2), (2, 1), (1, 1)], 33], ...[] ]
-            input_list = findListSumOfProfits(rectangles, num_items)
-            for input in input_list:
-                status = opp_solution(input[0], strip)
-                if status == "sat":
-                      is_Sol = "ok"
-                      print("Rectangles: ", input[0])
-                      print("Max profit is: ", input[1])
-                      break
-                    
-                elif status == "unsat":
-                    print("\n", "Unsat OPP constraint in this input: ", input[0])
-                    continue
-        if is_Sol != "ok":
-            print("No solution found")            
+
+            sorted_rectangles = sorted(rectangles, key=lambda x: x[2])
+            result = [(x[0], x[1]) for x in sorted_rectangles]
+            profits_sorted = [x[2] for x in sorted_rectangles]
+
+            print(result)
+
+
+            start = timead.time()
+            elap_time = 0
+            solution = ""
+
+            for i in range(0, len(result)):
+                status = opp_solution(result, strip)
+                if (len(result) == 0):
+                    elap_time = timead.time() - start
+                    solution = "unsat"
+                    break
+                if (status == "sat"):
+                    elap_time = timead.time() - start
+                    solution = "sat"
+                    total_profit = sum(profits_sorted[i:])
+                    print(f"Maximum profit achieved: {total_profit}")
+                    break
+                elif (status == "unsat"):
+                    result.pop(0)
+
+            solve_by_pysat(str(num_items), str(elap_time), solution, 0, 0, "Glucose3")
+
 
 max_profit_solution()

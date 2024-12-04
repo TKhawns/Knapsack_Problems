@@ -15,7 +15,7 @@ id_counter = 0
 
 def display_solution(strip, rectangles, pos_circuits):
     # define Matplotlib figure and axis
-    fig, ax = plt.subplots()
+    ax = plt.subplots()
     ax = plt.gca()
     plt.title(strip)
 
@@ -33,7 +33,6 @@ def display_solution(strip, rectangles, pos_circuits):
     ax.set_yticks(range(strip[1] + 1))
     ax.set_xlabel('width')
     ax.set_ylabel('height')
-
 
     # display plot
     plt.show()
@@ -304,28 +303,35 @@ def opp_solution(rectangles, strip, profits):
     
         print("Cost: ", rc2.cost)
         print("model: ", model)
+
         if model:
+            # Initial result position of rectangles by [-1, -1]
             pos = [[-1 for i in range(2)] for j in range(len(rectangles))]
-            rotation = []
-            print("SAT")
             result = {}
+            # Time solver of MAXSAT.
             solver_time = format(timeit.default_timer() - start, ".3f")
+
             for var in model:
                 if var > 0:
                     result[list(variables.keys())[list(variables.values()).index(var)]] = True
                 else:
                     result[list(variables.keys())[list(variables.values()).index(-var)]] = False
 
+            print("SAT")
             print("\nRectangle Placements:")
             print("-" * 50)
+
+            rotation = []
             selected_rectangles = []
             result_rectangle = []
             total_profit = 0
             res_pos = []
 
-            for i in range(len(rectangles)):
+            for i in range(n):
                 rotation.append(result[f"r{i + 1}"])
                 selected_rectangles.append(result[f"a{i + 1}"])
+
+                # Append position to pos[]
                 for e in range(width - 1):
                     if result[f"px{i + 1},{e}"] == False and result[f"px{i + 1},{e + 1}"] == True:
                         pos[i][0] = e + 1
@@ -344,20 +350,20 @@ def opp_solution(rectangles, strip, profits):
                         orig_width = rectangles[i][1]
                         orig_height = rectangles[i][0]
                     result_rectangle.append([orig_width, orig_height])
-                    actual_width = rectangles[i][0]
-                    actual_height = rectangles[i][1]
+                    actual_width, actual_height = rectangles[i][0], rectangles[i][1]
+                    res_pos.append([pos[i][0], pos[i][1]])
+                    total_profit += profits[i]
+
                     print(f"Rectangle {i+1}:")
                     print(f"  Position: ({pos[i][0]}, {pos[i][1]})")
-                    res_pos.append([pos[i][0], pos[i][1]])
                     print(f"  Dimensions: {actual_width}x{actual_height} {'(Rotated)' if rotation[i] else ''}")
                     print(f"  Profit: {profits[i]}")
-                    total_profit += profits[i]
                     print("-" * 50)
+
             print(f"Total profit: {total_profit}")
             print("Result rect:", result_rectangle)
-            filtered_positions = [p for p in pos if p != [-1, -1]]
-            print("Positions:", res_pos)  # Debugging line
-            print("Strip dimensions:", strip)  # Debugging line
+            print("Positions:", res_pos)
+            print("Strip dimensions:", strip)
             display_solution(strip, result_rectangle, res_pos)
             return(["sat", pos, rotation, solver_time])
         else:
@@ -375,6 +381,7 @@ def max_profit_solution():
             widths = list(map(int, lines[i + 1].strip().split()))
             heights = list(map(int, lines[i + 2].strip().split()))
             profits = list(map(int, lines[i + 3].strip().split()))
+            
             strip = [list_strip[0], list_strip[1]]
             num_items = len(widths)
 
@@ -382,7 +389,6 @@ def max_profit_solution():
             for j in range (0, num_items):
                 item = (widths[j], heights[j])
                 rectangles.append(item)
-            print("Rectangles: ", rectangles)
 
             result = opp_solution(rectangles, strip, profits)
             print("Result of MAXSAT: ", result)
