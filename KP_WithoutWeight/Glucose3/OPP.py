@@ -242,7 +242,6 @@ def max_profit_solution():
 
         for i in range(0, len_file, 4):
             result = ""
-            time = 0
             list_strip = list(map(int,lines[i].strip().split()))
             widths = list(map(int, lines[i + 1].strip().split()))
             heights = list(map(int, lines[i + 2].strip().split()))

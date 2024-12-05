@@ -7,10 +7,30 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from datetime import datetime
 from ortools.linear_solver import pywraplp
 import matplotlib.pyplot as plt
-import time
+from itertools import combinations 
 
 
 id_counter = 0
+
+def display_solution(strip, rectangles, pos_circuits):
+    # define Matplotlib figure and axis
+    ax = plt.subplots()
+    ax = plt.gca()
+    plt.title(strip)
+
+    if len(pos_circuits) > 0:
+        for i in range(len(rectangles)):
+            rect = plt.Rectangle(pos_circuits[i], *rectangles[i], edgecolor="#333")
+            ax.add_patch(rect)
+
+    ax.set_xlim(0, strip[0])
+    ax.set_ylim(0, strip[1] + 1)
+    ax.set_xticks(range(strip[0] + 1))
+    ax.set_yticks(range(strip[1] + 1))
+    ax.set_xlabel('width')
+    ax.set_ylabel('height')
+    # display plot
+    plt.show()
 
 def write_to_xlsx(result_dict):
     # Append the result to a list
@@ -58,21 +78,17 @@ def solve_by_pysat(input, time, result, num_var, num_clause, name_lib):
     write_to_xlsx(result_dict)
 
 
-
 def MIP_OPP(rectangles, W, H):
-    strip = (W, H)
-
-    # MIP Solver
+    # Define MIP Solver
     solver = pywraplp.Solver.CreateSolver('SAT')
-    if not solver:
-        print("Solver not found.")
-        return
-
     n = len(rectangles)
 
     # Define variables for positions of each rectangle (x[i], y[i])
     x = [solver.IntVar(0, W, f'x_{i}') for i in range(n)]
     y = [solver.IntVar(0, H, f'y_{i}') for i in range(n)]
+    # Rotation variable
+    r = [solver.BoolVar(f'r_{i}') for i in range(n)]  
+
 
     # (1) Domain constraints for rectangles within the bin dimensions
     for i in range(n):
@@ -95,7 +111,7 @@ def MIP_OPP(rectangles, W, H):
         if hi == max_height:
             solver.Add(y[i] <= (H - hi) // 2)
 
-    # (4) Same rectangle symmetry
+    # # (4) Same rectangle symmetry
     for i in range(n):
         for j in range(i + 1, n):
             if rectangles[i] == rectangles[j]:
@@ -115,21 +131,19 @@ def MIP_OPP(rectangles, W, H):
             no_overlap_3 = solver.BoolVar(f'no_overlap_3_{i}_{j}')  # y[i] + hi <= y[j]
             no_overlap_4 = solver.BoolVar(f'no_overlap_4_{i}_{j}')  # y[j] + hj <= y[i]
 
-
-            solver.Add(x[i] + wi <= x[j] + W * (1 - no_overlap_1))
-            solver.Add(x[j] + wj <= x[i] + W * (1 - no_overlap_2))
-            solver.Add(y[i] + hi <= y[j] + H * (1 - no_overlap_3))
-            solver.Add(y[j] + hj <= y[i] + H * (1 - no_overlap_4))
+            M = max(W, H)
+            solver.Add(x[i] + wi <= x[j] + M * (1 - no_overlap_1))
+            solver.Add(x[j] + wj <= x[i] + M * (1 - no_overlap_2))
+            solver.Add(y[i] + hi <= y[j] + M * (1 - no_overlap_3))
+            solver.Add(y[j] + hj <= y[i] + M * (1 - no_overlap_4))
 
             # Ensure at least one no-overlap condition holds
             solver.Add(no_overlap_1 + no_overlap_2 + no_overlap_3 + no_overlap_4 >= 1)
 
     # Solve the model
     status = solver.Solve()
-    print(status)
     # postition of result rectangles, input of visualize.
     pos = []
-    print("POS: ", pos)
     selected_rectangles = []
 
     if status == pywraplp.Solver.OPTIMAL:
@@ -142,81 +156,72 @@ def MIP_OPP(rectangles, W, H):
                 print(f"Rectangle: ({wi}, {hi})", f"Position (x, y) = ({x[i].solution_value()}, {y[i].solution_value()})"),  
                 selected_rectangles.append(rectangles[i])
             
-        print("New pos:", pos)
         print("Result rectangles: ", selected_rectangles)
-        # return ["sat", solver.wall_time()/1000]
-        display_solution(strip, selected_rectangles, pos)
+        return "sat"
+        # display_solution(strip, selected_rectangles, pos)
 
     else:
         print("No optimal solution found.")
-        return ["unsat",solver.wall_time() / 1000]  # Convert to seconds
+        return "unsat"
 
+
+# function to generate all combinations of list rectangle by numberOfItems.
+def findListSumOfProfits(rectangles, numberOfItems):
+    # parameter rectangles: include profit [(width, height, profit)...].
+    result_for_loop = []
+    # Output is [[listOfRects, profitOfThisListRects], ...[]]
+    while numberOfItems > 0:
+        comb = combinations(rectangles, numberOfItems)
+        for var in comb:
+            temp = []
+            rect_in_comb = [(x[0], x[1]) for x in list(var)]
+            profit = sum(x[2] for x in list(var))
+            temp.append(rect_in_comb)
+            temp.append(profit)
+            result_for_loop.append(temp)
+
+        numberOfItems -= 1
+
+    result_for_loop = sorted(result_for_loop, reverse=True, key=lambda x: x[1])
+
+
+    print("Result of function:", result_for_loop)
+    return result_for_loop
 
 def max_profit_solution():
     with open('../dataset/dataset.txt', 'r') as file:
         lines = file.readlines()
         len_file = len(lines)
 
+        is_Sol = ""
+
         for i in range(0, len_file, 4):
-            result = ""
             list_strip = list(map(int,lines[i].strip().split()))
             widths = list(map(int, lines[i + 1].strip().split()))
             heights = list(map(int, lines[i + 2].strip().split()))
             profits = list(map(int, lines[i + 3].strip().split()))
-            strip = (list_strip[0], list_strip[1])
             num_items = len(widths)
 
             rectangles = []
             for j in range (0, num_items):
                 item = (widths[j], heights[j], profits[j])
                 rectangles.append(item)
-
-            sorted_rectangles = sorted(rectangles, key=lambda x: x[2])
-            result = [(x[0], x[1]) for x in sorted_rectangles]
-            profits_sorted = [x[2] for x in sorted_rectangles]  # Keep track of sorted profits
-
-            print(result)
-
-
-            start = time.time()
-            elap_time = 0
-            solution = ""
-
-            for i in range(0, len(result)):
-                status = MIP_OPP(result, list_strip[0], list_strip[1])
-                if (len(result) == 0):
-                    elap_time = time.time() - start
-                    solution = "unsat"
-                    break
-                if (status == "sat"):
-                    elap_time = time.time() - start
-                    solution = "sat"
-                    total_profit = sum(profits_sorted[i:])
-                    print(f"Maximum profit achieved: {total_profit}")
-                    break
-                elif (status == "unsat"):
-                    result.pop(0)
-
-            solve_by_pysat(str(num_items), str(elap_time), solution, 0, 0, "Glucose3")
-
-def display_solution(strip, rectangles, pos_circuits):
-    # define Matplotlib figure and axis
-    fig, ax = plt.subplots()
-    ax = plt.gca()
-    plt.title(strip)
-
-    if len(pos_circuits) > 0:
-        for i in range(len(rectangles)):
-            rect = plt.Rectangle(pos_circuits[i], *rectangles[i], edgecolor="#333")
-            ax.add_patch(rect)
-
-    ax.set_xlim(0, strip[0])
-    ax.set_ylim(0, strip[1] + 1)
-    ax.set_xticks(range(strip[0] + 1))
-    ax.set_yticks(range(strip[1] + 1))
-    ax.set_xlabel('width')
-    ax.set_ylabel('height')
-    # display plot
-    plt.show()
+            
+            # Update code
+            # input_list sample = [ [ [(1, 3), (2, 1), (2, 1), (1, 1), (1, 2), (1, 1), (1, 1), (6, 2), (2, 1), (1, 1)], 33], ...[] ]
+            input_list = findListSumOfProfits(rectangles, num_items)
+            for input in input_list:
+                status = MIP_OPP(input[0], list_strip[0], list_strip[1])
+                if status == "sat":
+                      is_Sol = "ok"
+                      print("Rectangles: ", input[0])
+                      print("Max profit is: ", input[1])
+                      break
+                    
+                elif status == "unsat":
+                    print("\n", "Unsat OPP constraint in this input: ", input[0])
+                    continue
+        if is_Sol != "ok":
+            print("No solution found")            
 
 max_profit_solution()

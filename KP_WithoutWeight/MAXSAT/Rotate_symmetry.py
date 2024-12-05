@@ -351,6 +351,11 @@ def opp_solution(rectangles, strip, profits):
                         orig_height = rectangles[i][0]
                     result_rectangle.append([orig_width, orig_height])
                     actual_width, actual_height = rectangles[i][0], rectangles[i][1]
+                    if pos[i][0] > -1 and pos[i][1] == -1:
+                        pos[i][1] = 0
+                    if pos[i][0] == -1 and pos[i][1] > -1:
+                        pos[i][0] = 0
+
                     res_pos.append([pos[i][0], pos[i][1]])
                     total_profit += profits[i]
 

@@ -1,3 +1,4 @@
+from ortools.sat.python import cp_model
 import os
 import pandas as pd
 from openpyxl import Workbook
@@ -5,10 +6,8 @@ from openpyxl import load_workbook
 from zipfile import BadZipFile
 from openpyxl.utils.dataframe import dataframe_to_rows
 from datetime import datetime
-from ortools.linear_solver import pywraplp
 import matplotlib.pyplot as plt
 from itertools import combinations 
-
 
 id_counter = 0
 
@@ -77,122 +76,6 @@ def solve_by_pysat(input, time, result, num_var, num_clause, name_lib):
     }
     write_to_xlsx(result_dict)
 
-
-def MIP_OPP(rectangles, W, H):
-    # Define MIP Solver
-    strip = (W, H)
-    solver = pywraplp.Solver.CreateSolver('SAT')
-    n = len(rectangles)
-
-    # Define variables for positions of each rectangle (x[i], y[i])
-    x = [solver.IntVar(0, W, f'x_{i}') for i in range(n)]
-    y = [solver.IntVar(0, H, f'y_{i}') for i in range(n)]
-    # Rotation variable
-    r = [solver.BoolVar(f'r_{i}') for i in range(n)]  
-    xs = [solver.BoolVar(f'a_{i}') for i in range(n)]  
-
-
-
-    # (1) Domain of rectangles (x[i], y[i]) with rotation
-    for i in range(n):
-        wi, hi = rectangles[i]
-
-        # Adjust width and height based on rotation
-        solver.Add(x[i] + (1 - r[i]) * wi + r[i] * hi <= W)
-        solver.Add(y[i] + (1 - r[i]) * hi + r[i] * wi <= H)
-
-        if wi > W or hi > H:  # Must rotate to fit
-            solver.Add(r[i] == 1)
-        elif wi == hi or (wi > H or hi > W):  # Rotation not allowed if it still won't fit
-            solver.Add(r[i] == 0)
-    
-    # (2) Large Rectangles Optimization
-    for i in range(n):
-        for j in range(i + 1, n):
-            wi, hi = rectangles[i]
-            wj, hj = rectangles[j]
-
-            # Horizontal packing not possible
-            if wi + wj > W:
-                solver.Add(x[i] + (1 - r[i]) * wi + r[i] * hi <= x[j] + W * (1 - xs[j]))
-                solver.Add(x[j] + (1 - r[j]) * wj + r[j] * hj <= x[i] + W * (1 - xs[i]))
-
-            # Vertical packing not possible
-            if hi + hj > H:
-                solver.Add(y[i] + (1 - r[i]) * hi + r[i] * wi <= y[j] + H * (1 - xs[j]))
-                solver.Add(y[j] + (1 - r[j]) * hj + r[j] * wj <= y[i] + H * (1 - xs[i]))
-
-    # (3) Same Rectangles Optimization
-    for i in range(n):
-        for j in range(i + 1, n):
-            if rectangles[i] == rectangles[j]:
-                # Same rotation
-                solver.Add(r[i] == r[j])
-
-                # Fix positional relationship: Ensure r_i is always to the left or below r_j
-                solver.Add(x[i] <= x[j])
-                solver.Add(y[i] <= y[j])
-
-    # (5) Non-overlapping constraints between rectangles
-    for i in range(n):
-        for j in range(i + 1, n):
-            wi, hi = rectangles[i]
-            wj, hj = rectangles[j]
-
-            # Binary variables for overlap conditions
-            no_overlap_1 = solver.BoolVar(f'no_overlap_1_{i}_{j}')  # x[i] + wi <= x[j]
-            no_overlap_2 = solver.BoolVar(f'no_overlap_2_{i}_{j}')  # x[j] + wj <= x[i]
-            no_overlap_3 = solver.BoolVar(f'no_overlap_3_{i}_{j}')  # y[i] + hi <= y[j]
-            no_overlap_4 = solver.BoolVar(f'no_overlap_4_{i}_{j}')  # y[j] + hj <= y[i]
-
-            solver.Add(x[i] + (1 - r[i]) * wi + r[i] * hi <= x[j] + W * (1 - no_overlap_1))
-            solver.Add(x[j] + (1 - r[j]) * wj + r[j] * hj <= x[i] + W * (1 - no_overlap_2))
-            solver.Add(y[i] + (1 - r[i]) * hi + r[i] * wi <= y[j] + H * (1 - no_overlap_3))
-            solver.Add(y[j] + (1 - r[j]) * hj + r[j] * wj <= y[i] + H * (1 - no_overlap_4))
-
-            # Ensure at least one no-overlap condition holds
-            solver.Add(no_overlap_1 + no_overlap_2 + no_overlap_3 + no_overlap_4 >= 1)
-
-    max_width = max(rect[1] for rect in rectangles)
-
-    for i, (wi, hi) in enumerate(rectangles):
-        if wi == max_width:
-            # Restrict horizontal domain
-            max_domain = (W - wi) // 2
-            solver.Add(x[i] <= max_domain)
-
-    # Solve the model
-    status = solver.Solve()
-    # postition of result rectangles, input of visualize.
-    pos = []
-    selected_rectangles = []
-
-    if status == pywraplp.Solver.OPTIMAL:
-        print("Optimal solution found.")
-        for i in range(n):
-                wi, hi = rectangles[i]
-                if x[i].solution_value() >= 0 and y[i].solution_value() >= 0:
-                    pos.append([x[i].solution_value(), y[i].solution_value()])
-                new_w = wi
-                new_h = hi
-                if r[i].solution_value() >= 0:
-                    new_w = hi
-                    new_h = wi
-                selected_rectangles.append([new_w, new_h])
-
-                print(f"Rectangle: ({wi}, {hi})", f"Position (x, y) = ({x[i].solution_value()}, {y[i].solution_value()})"),  
-                # selected_rectangles.append(rectangles[i])
-            
-        print("Result rectangles: ", selected_rectangles)
-        return "sat"
-        display_solution(strip, selected_rectangles, pos)
-
-    else:
-        print("No optimal solution found.")
-        return "unsat"
-
-
-# function to generate all combinations of list rectangle by numberOfItems.
 def findListSumOfProfits(rectangles, numberOfItems):
     # parameter rectangles: include profit [(width, height, profit)...].
     result_for_loop = []
@@ -214,6 +97,115 @@ def findListSumOfProfits(rectangles, numberOfItems):
 
     print("Result of function:", result_for_loop)
     return result_for_loop
+
+def cpSAT_OPP(rectangles, W, H, profits):
+    model = cp_model.CpModel()
+
+    n = len(rectangles)
+    
+    # Variables for position and rotation
+    x = [model.NewIntVar(0, W, f'x_{i}') for i in range(n)]
+    y = [model.NewIntVar(0, H, f'y_{i}') for i in range(n)]
+    r = [model.NewBoolVar(f'r_{i}') for i in range(n)]   # Rotation variable
+    xs = [model.NewBoolVar(f'a_{i}') for i in range(n)]  # Selection variable
+
+    # (1) Domain of rectangles (x[i], y[i]) with rotation
+    for i in range(n):
+        wi, hi = rectangles[i]
+
+        # Constraint: width and height based on rotation
+        model.Add(x[i] + (1 - r[i]) * wi + r[i] * hi <= W)
+        model.Add(y[i] + (1 - r[i]) * hi + r[i] * wi <= H)
+
+        # If it out of strip, it must be rotated
+        if wi > W or hi > H:
+            model.Add(r[i] == 1)
+        # Prevent rotation for squares and strip.
+        if wi == hi or (wi > H or hi > W):
+            model.Add(r[i] == 0)
+    
+    # (2) Large Rectangles Optimization
+    for i in range(n):
+        for j in range(i + 1, n):
+            wi, hi = rectangles[i]
+            wj, hj = rectangles[j]
+
+            # Horizontal packing not possible
+            if wi + wj > W:
+                model.Add(x[i] + (1 - r[i]) * wi + r[i] * hi <= x[j]).OnlyEnforceIf(xs[i].Not())
+                model.Add(x[j] + (1 - r[j]) * wj + r[j] * hj <= x[i]).OnlyEnforceIf(xs[j].Not())
+
+            # Vertical packing not possible
+            if hi + hj > H:
+                model.Add(y[i] + (1 - r[i]) * hi + r[i] * wi <= y[j]).OnlyEnforceIf(xs[i].Not())
+                model.Add(y[j] + (1 - r[j]) * hj + r[j] * wj <= y[i]).OnlyEnforceIf(xs[j].Not())
+
+    # (3) Same Rectangles Optimization
+    for i in range(n):
+        for j in range(i + 1, n):
+            if rectangles[i] == rectangles[j]:
+                # Fix positional relationship: r_i is always to the left or below r_j
+                model.Add(x[i] <= x[j])
+                model.Add(y[i] <= y[j])
+
+    # (2) Non-overlapping constraints
+    for i in range(n):
+        for j in range(i + 1, n):
+            wi, hi = rectangles[i]
+            wj, hj = rectangles[j]
+
+            # Non-overlapping constraints with rotation
+            no_overlap_1 = model.NewBoolVar(f'no_overlap_1_{i}_{j}')  # x[i] + width[i] <= x[j]
+            no_overlap_2 = model.NewBoolVar(f'no_overlap_2_{i}_{j}')  # x[j] + width[j] <= x[i]
+            no_overlap_3 = model.NewBoolVar(f'no_overlap_3_{i}_{j}')  # y[i] + height[i] <= y[j]
+            no_overlap_4 = model.NewBoolVar(f'no_overlap_4_{i}_{j}')  # y[j] + height[j] <= y[i]
+
+            model.Add(x[i] + (1 - r[i]) * wi + r[i] * hi <= x[j]).OnlyEnforceIf(no_overlap_1)
+            model.Add(x[j] + (1 - r[j]) * wj + r[j] * hj <= x[i]).OnlyEnforceIf(no_overlap_2)
+            model.Add(y[i] + (1 - r[i]) * hi + r[i] * wi <= y[j]).OnlyEnforceIf(no_overlap_3)
+            model.Add(y[j] + (1 - r[j]) * hj + r[j] * wj <= y[i]).OnlyEnforceIf(no_overlap_4)
+
+            # Ensure at least one non-overlapping condition holds
+            model.AddBoolOr([no_overlap_1, no_overlap_2, no_overlap_3, no_overlap_4])
+
+    # (1) Domain reduction for the maximum rectangle by width
+    max_width = max(rect[1] for rect in rectangles)
+
+    for i, (wi, hi) in enumerate(rectangles):
+        if wi == max_width:
+            # Restrict horizontal domain
+            max_domain = (W - wi) // 2
+            model.Add(x[i] <= max_domain)
+
+    # Constraints max total profit
+    # Not work.
+    # model.maximize(sum(x * v for x, v in zip(xs, profits)))
+
+    # CP Solver
+    solver = cp_model.CpSolver()
+    status = solver.Solve(model)
+    
+    if status == cp_model.OPTIMAL:
+        total = 0
+        selected_rectangles = []
+        pos = []
+        
+        for i, xs_val in enumerate(xs):
+            if solver.value(xs_val):
+                total += profits[i]
+                selected_rectangles.append(rectangles[i])
+                pos.append([solver.value(x[i]), solver.value(y[i])])
+                
+        print("Total profit:", total)
+
+        # Visualize solution
+        strip = (W, H)
+        return "sat"
+        display_solution(strip, selected_rectangles, pos)
+    else:
+        print('No solution found.')
+        return "unsat"
+
 
 def max_profit_solution():
     with open('../dataset/dataset.txt', 'r') as file:
@@ -238,7 +230,7 @@ def max_profit_solution():
             # input_list sample = [ [ [(1, 3), (2, 1), (2, 1), (1, 1), (1, 2), (1, 1), (1, 1), (6, 2), (2, 1), (1, 1)], 33], ...[] ]
             input_list = findListSumOfProfits(rectangles, num_items)
             for input in input_list:
-                status = MIP_OPP(input[0], list_strip[0], list_strip[1])
+                status = cpSAT_OPP(input[0], list_strip[0], list_strip[1], profits)
                 if status == "sat":
                       is_Sol = "ok"
                       print("Rectangles: ", input[0])
