@@ -6,22 +6,20 @@ from openpyxl import load_workbook
 from zipfile import BadZipFile
 from openpyxl.utils.dataframe import dataframe_to_rows
 from datetime import datetime
-import timeit
 from pysat.examples.rc2 import RC2
 import matplotlib.pyplot as plt
+import time
+import signal
 
-time_budget = 100
 id_counter = 0
 
 def display_solution(strip, rectangles, pos_circuits):
-    # define Matplotlib figure and axis
     ax = plt.subplots()
     ax = plt.gca()
     plt.title(strip)
 
     if len(pos_circuits) > 0:
         for i in range(len(rectangles)):
-            # Add fill color for better visibility
             rect = plt.Rectangle(pos_circuits[i], *rectangles[i], edgecolor="#333", facecolor="#69b3a2", alpha=0.5)
             ax.add_patch(rect)
     else:
@@ -34,7 +32,6 @@ def display_solution(strip, rectangles, pos_circuits):
     ax.set_xlabel('width')
     ax.set_ylabel('height')
 
-    # display plot
     plt.show()
 
 def write_to_xlsx(result_dict):
@@ -42,7 +39,7 @@ def write_to_xlsx(result_dict):
     excel_results = []
     excel_results.append(result_dict)
 
-    output_path =  'output/'
+    output_path =  'rotate_symmetry_new/'
 
     # Write the results to an Excel file
     if not os.path.exists(output_path): os.makedirs(output_path)
@@ -68,27 +65,27 @@ def write_to_xlsx(result_dict):
 
     else: df.to_excel(excel_file_path, index=False, sheet_name='Results', header=False)
 
-def solve_by_pysat(input, time, result, num_var, num_clause, name_lib):
+def export_csv(problem_name, method_name, time, result, num_var, num_clause, max_profit):
     global id_counter
     id_counter += 1
     result_dict = {
-        "ID": id_counter,
-        "Problem": input,
-        "Type": name_lib,
+        "No": id_counter,
+        "Problem": problem_name,
+        "Type": method_name,
         "Time": time,
         "Result": result,
         "Variables": num_var,
-        "Clauses": num_clause
+        "Clauses": num_clause,
+        "Max profit": max_profit
     }
     write_to_xlsx(result_dict)
-
 
 def positive_range(end):
     if (end < 0):
         return []
     return range(end)
 
-def opp_solution(rectangles, strip, profits):
+def maxsat_constraints(rectangles, strip, profits, file_name):
     # Define the variables
     cnf = WCNF()
 
@@ -294,109 +291,128 @@ def opp_solution(rectangles, strip, profits):
     # WCNF weight constraint of MAXSAT
     for i in range(n):
         cnf.append([variables[f"a{i + 1}"]], weight=profits[i])
+
+    # print("Result of cnf", cnf)
+    # output_file = f"{file_name}.wcnf"
+    # cnf.to_file(output_file)
+    def handler(signum, frame):
+        raise TimeoutError("RC2 solver timed out")
+
+    signal.signal(signal.SIGALRM, handler)
+    signal.alarm(600)  # 5 seconds timeout
+    total_profit = 0
+
+    try:
+        # add all clauses to SAT solver
+        with RC2(cnf) as rc2: # add all cnf to solver
+            model = rc2.compute()  # RC2 natively supports time limits
         
+            if model is None:
+                return ["TIMEOUT"]
+            if model:
+                # Initial result position of rectangles by [-1, -1]
+                # pos = [[-1 for i in range(2)] for j in range(len(rectangles))]
+                result = {}
 
-    # add all clauses to SAT solver
-    start = timeit.default_timer()
-    with RC2(cnf) as rc2: # add all cnf to solver
-        model = rc2.compute()
-    
-        print("Cost: ", rc2.cost)
-        print("model: ", model)
+                for var in model:
+                    if var > 0:
+                        result[list(variables.keys())[list(variables.values()).index(var)]] = True
+                    else:
+                        result[list(variables.keys())[list(variables.values()).index(-var)]] = False
 
-        if model:
-            # Initial result position of rectangles by [-1, -1]
-            pos = [[-1 for i in range(2)] for j in range(len(rectangles))]
-            result = {}
-            # Time solver of MAXSAT.
-            solver_time = format(timeit.default_timer() - start, ".3f")
+                # rotation = []
+                selected_rectangles = []
+                # result_rectangle = []
+                # res_pos = []
 
-            for var in model:
-                if var > 0:
-                    result[list(variables.keys())[list(variables.values()).index(var)]] = True
-                else:
-                    result[list(variables.keys())[list(variables.values()).index(-var)]] = False
+                for i in range(n):
+                    # rotation.append(result[f"r{i + 1}"])
+                    selected_rectangles.append(result[f"a{i + 1}"])
 
-            print("SAT")
-            print("\nRectangle Placements:")
-            print("-" * 50)
+                    # Append position to pos[]
+                    # for e in range(width - 1):
+                    #     if result[f"px{i + 1},{e}"] == False and result[f"px{i + 1},{e + 1}"] == True:
+                    #         pos[i][0] = e + 1
+                    #     if e == 0 and result[f"px{i + 1},{e}"] == True:
+                    #         pos[i][0] = 0
+                    # for f in range(height - 1):
+                    #     if result[f"py{i + 1},{f}"] == False and result[f"py{i + 1},{f + 1}"] == True:
+                    #         pos[i][1] = f + 1
+                    #     if f == 0 and result[f"py{i + 1},{f}"] == True:
+                    #         pos[i][1] = 0
+                    
+                    # Print detailed information for each rectangle
+                    if selected_rectangles[i] == True:
+                    #     orig_width, orig_height = rectangles[i][0], rectangles[i][1]
+                    #     if rotation[i]:
+                    #         orig_width = rectangles[i][1]
+                    #         orig_height = rectangles[i][0]
+                    #     result_rectangle.append([orig_width, orig_height])
+                    #     actual_width, actual_height = rectangles[i][0], rectangles[i][1]
+                    #     if pos[i][0] > -1 and pos[i][1] == -1:
+                    #         pos[i][1] = 0
+                    #     if pos[i][0] == -1 and pos[i][1] > -1:
+                    #         pos[i][0] = 0
 
-            rotation = []
-            selected_rectangles = []
-            result_rectangle = []
-            total_profit = 0
-            res_pos = []
+                    #     res_pos.append([pos[i][0], pos[i][1]])
+                        total_profit += profits[i]
 
-            for i in range(n):
-                rotation.append(result[f"r{i + 1}"])
-                selected_rectangles.append(result[f"a{i + 1}"])
+                        # print(f"Rectangle {i+1}:")
+                        # print(f"  Position: ({pos[i][0]}, {pos[i][1]})")
+                        # print(f"  Dimensions: {actual_width}x{actual_height} {'(Rotated)' if rotation[i] else ''}")
+                        # print(f"  Profit: {profits[i]}")
+                        # print("-" * 50)
 
-                # Append position to pos[]
-                for e in range(width - 1):
-                    if result[f"px{i + 1},{e}"] == False and result[f"px{i + 1},{e + 1}"] == True:
-                        pos[i][0] = e + 1
-                    if e == 0 and result[f"px{i + 1},{e}"] == True:
-                        pos[i][0] = 0
-                for f in range(height - 1):
-                    if result[f"py{i + 1},{f}"] == False and result[f"py{i + 1},{f + 1}"] == True:
-                        pos[i][1] = f + 1
-                    if f == 0 and result[f"py{i + 1},{f}"] == True:
-                        pos[i][1] = 0
-                
-                # Print detailed information for each rectangle
-                if selected_rectangles[i] == True:
-                    orig_width, orig_height = rectangles[i][0], rectangles[i][1]
-                    if rotation[i]:
-                        orig_width = rectangles[i][1]
-                        orig_height = rectangles[i][0]
-                    result_rectangle.append([orig_width, orig_height])
-                    actual_width, actual_height = rectangles[i][0], rectangles[i][1]
-                    if pos[i][0] > -1 and pos[i][1] == -1:
-                        pos[i][1] = 0
-                    if pos[i][0] == -1 and pos[i][1] > -1:
-                        pos[i][0] = 0
-
-                    res_pos.append([pos[i][0], pos[i][1]])
-                    total_profit += profits[i]
-
-                    print(f"Rectangle {i+1}:")
-                    print(f"  Position: ({pos[i][0]}, {pos[i][1]})")
-                    print(f"  Dimensions: {actual_width}x{actual_height} {'(Rotated)' if rotation[i] else ''}")
-                    print(f"  Profit: {profits[i]}")
-                    print("-" * 50)
-
-            print(f"Total profit: {total_profit}")
-            print("Result rect:", result_rectangle)
-            print("Positions:", res_pos)
-            print("Strip dimensions:", strip)
-            display_solution(strip, result_rectangle, res_pos)
-            return(["sat", pos, rotation, solver_time])
-        else:
-            print("No solution")
-            return "unsat"
+                # print(f"Total profit: {total_profit}")
+                # print("Result rect:", result_rectangle)
+                # print("Positions:", res_pos)
+                # print("Strip dimensions:", strip)
+                # display_solution(strip, result_rectangle, res_pos)
+                return ["SAT", counter, len(cnf.hard) + len(cnf.soft), total_profit]
+            else:
+                return ["UNSAT"]
+    except TimeoutError:
+        print("Solver exceeded time limit")
+        return ["UNSAT"]
+    finally:
+        print("aa")
+        signal.alarm(0)  # Disable the alarm
+        if (total_profit == 0):
+            return ["UNSAT"]
+        return ["SAT", counter, len(cnf.hard) + len(cnf.soft), total_profit]
 
 def max_profit_solution():
-    with open('../dataset/dataset.txt', 'r') as file:
-        lines = file.readlines()
-        len_file = len(lines)
+    folder_path = './miss_data/'
+    for file_name in os.listdir(folder_path):
+        file_path = os.path.join(folder_path, file_name)
+        if os.path.isfile(file_path) and file_name.endswith('.txt') and file_name == "gcut1.txt":
+            print(f"Processing file: {file_name}")
+            with open(file_path, 'r') as file:
+                lines = file.readlines()
+                list_strip = list(map(int,lines[0].strip().split()))
+                widths = list(map(int, lines[1].strip().split()))
+                heights = list(map(int, lines[2].strip().split()))
+                profits = list(map(int, lines[3].strip().split()))
+                num_items = len(widths)
 
-        for i in range(0, len_file, 4):
-            result = ""
-            list_strip = list(map(int,lines[i].strip().split()))
-            widths = list(map(int, lines[i + 1].strip().split()))
-            heights = list(map(int, lines[i + 2].strip().split()))
-            profits = list(map(int, lines[i + 3].strip().split()))
-            
-            strip = [list_strip[0], list_strip[1]]
-            num_items = len(widths)
+                # Get list rectangles from input data.
+                rectangles = []
+    
+                for j in range (0, num_items):
+                    item = (widths[j], heights[j], profits[j])
+                    rectangles.append(item)
 
-            rectangles = []
-            for j in range (0, num_items):
-                item = (widths[j], heights[j])
-                rectangles.append(item)
-
-            result = opp_solution(rectangles, strip, profits)
-            print("Result of MAXSAT: ", result)
+                started_time = time.time()
+                status = maxsat_constraints(rectangles, list_strip, profits, file_name)
+                ended_time = time.time()
+                print(file_name, ended_time - started_time)
+                end_time = time.time()
+                if status[0] == "TIMEOUT":
+                    export_csv(file_name, "maxsat_rotate_symmetry", end_time- started_time, "TIMEOUT", 0, 0, 0)
+                if status[0] == "SAT":
+                    export_csv(file_name, "maxsat_rotate_symmetry", end_time - started_time, "SAT", status[1], status[2], status[3])
+                if status[0] == "UNSAT":
+                    export_csv(file_name, "maxsat_rotate_symmetry", end_time - started_time, "UNSAT", 0, 0, 0)
 
 max_profit_solution()
 
