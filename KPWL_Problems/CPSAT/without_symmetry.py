@@ -144,26 +144,7 @@ def CPSAT_constraints(rectangles, W, H, profits, mid):
     # Profit constraint (assuming profits are given and mid is the minimum total profit).
     # Since xs[i] is Boolean and profits[i] is a constant, this is linear.
     model.Add(sum(profits[i] * xs[i] for i in range(n)) >= mid)
-
-    # Symmetry breaking constraints.
-    # [1] If two rectangles are identical then force a lexicographic order.
-    for i in range(n):
-        for j in range(i + 1, n):
-            if rectangles[i] == rectangles[j]:
-                model.Add(x[i] <= x[j])
-                model.Add(y[i] <= y[j])
-
-    # [2] For rectangles with the maximum width, restrict their horizontal domain.
-    max_width_val = max(rect[0] for rect in rectangles)  # Assuming rect[0] is the width.
-    for i, rect in enumerate(rectangles):
-        wi, hi, _ = rect
-        if wi == max_width_val:
-            max_domain = (W - wi) // 2
-            model.Add(x[i] <= max_domain)
-    # Constraints max total profit
-    # Not work.
-    # model.maximize(sum(x * v for x, v in zip(xs, profits)))
-
+    
     # CP Solver
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = 600.0
@@ -190,7 +171,7 @@ def max_profit_solution():
     folder_path = '../miss_data/'
     for file_name in os.listdir(folder_path):
         file_path = os.path.join(folder_path, file_name)
-        if os.path.isfile(file_path) and file_name.endswith('.txt') and file_name == 'gcut2.txt':
+        if os.path.isfile(file_path) and file_name.endswith('.txt'): 
             print(f"Processing file: {file_name}")
             with open(file_path, 'r') as file:
                 lines = file.readlines()
@@ -208,16 +189,15 @@ def max_profit_solution():
                 for j in range (0, num_items):
                     item = (widths[j], heights[j], profits[j])
                     rectangles.append(item)
-
                 isExport = ""
                 started_time = time.time()
                 while (lower_bound + 1 < upper_bound):
                     if time.time() - started_time >= 600: 
                         isExport = "TIMEOUT"
                         if prev_sat == []:
-                            export_csv(file_name, "cpsat_rotate_symmetry", time.time() - started_time, "TIMEOUT", 0, 0, 0)
+                            export_csv(file_name, "cpsat_non_symmetry", time.time() - started_time, "TIMEOUT", 0, 0, 0)
                             break
-                        export_csv(file_name, "cpsat_rotate_symmetry", time.time() - started_time, "TIMEOUT", 0, 0, prev_sat[3])
+                        export_csv(file_name, "cpsat_non_symmetry", time.time() - started_time, "TIMEOUT", 0, 0, 0)
                         break
                     mid = lower_bound + (upper_bound - lower_bound) // 2
                     status = CPSAT_constraints(rectangles, list_strip[0], list_strip[1], profits, mid)
@@ -230,9 +210,9 @@ def max_profit_solution():
                         continue
                 ended_time = time.time()
 
-                if (isExport != "TIMEOUT"):
+                if isExport != "TIMEOUT":
                     if (prev_sat[0]) == "SAT":
-                        export_csv(file_name, "cpsat_rotate_symmetry", ended_time - started_time, "SAT", prev_sat[1], prev_sat[2], prev_sat[3])
-                    else: export_csv(file_name, "cpsat_rotate_symmetry", ended_time - started_time, "UNSAT", 0, 0, 0)
+                        export_csv(file_name, "cpsat_non_symmetry", ended_time - started_time, "SAT", prev_sat[1], prev_sat[2], prev_sat[3])
+                    else: export_csv(file_name, "cpsat_non_symmetry", ended_time - started_time, "UNSAT", 0, 0, 0)
 
 max_profit_solution()

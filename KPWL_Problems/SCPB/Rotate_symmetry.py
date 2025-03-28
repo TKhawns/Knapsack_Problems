@@ -312,7 +312,7 @@ def opp_solution(rectangles, strip):
                     if f == 0 and result[f"py{i + 1},{f}"] == True:
                         print(f"y{i + 1} = 0")
                         pos[i][1] = 0
-
+            print(rectangles)
             display_solution(strip, rectangles, pos, rotation)
             return ["sat", elapse_time]
 
@@ -348,9 +348,9 @@ def atMost_k(vars: List[int], weight: List[int], k):
         for j in range(1, n_bits + 1):
             id_variable += 1
             map_register[i][j] = id_variable
-
-    print("Map register:")
-    print(map_register)
+    print(1)
+    # print("Map register:")
+    # print(map_register)
 
     # (0) if weight[i] > k => x[i] False
     for i in range(1, n + 1):
@@ -390,7 +390,7 @@ def find_all_solutions(solver, n_items):
             return [solutions_set,"timeout"]
         elapsed_time = elapsed_time +  solver.time()
         solution = solver.get_model()
-        print("Solution", solution)
+        # print("Solution", solution)
 
         temp = []
         for i in range (0, n_items):
@@ -413,7 +413,7 @@ def max_profit_solution(rectangles, weights, profits, weight_bound, strip):
     
     # all solutions that satify leq encoding with Weight include empty solution []
     # arr_solution = [set_solution, elapse_time] of find_all_solution with constraints <= Max_weight
-    arr_solution = atMost_k(vars,var_weight, weight_bound)
+    arr_solution = atMost_k(vars, var_weight, weight_bound)
 
     all_solution = arr_solution[0]
     elapse_time = arr_solution[1]
@@ -475,7 +475,7 @@ def max_profit_solution(rectangles, weights, profits, weight_bound, strip):
     solve_by_pysat(len(weights), elapse_time, isSat, 0, 0, "SCPB")
 
 def solve_KPWL_SCPB():
-    with open('../dataset/test_input.txt', 'r') as file:
+    with open('../dataset/dataset2.txt', 'r') as file:
         # max_weight, min_profit
         # strip
         # list weights

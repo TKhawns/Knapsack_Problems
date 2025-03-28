@@ -34,7 +34,7 @@ def write_to_xlsx(result_dict):
     excel_results = []
     excel_results.append(result_dict)
 
-    output_path =  'miss_data_out/'
+    output_path =  'test/'
 
     # Write the results to an Excel file
     if not os.path.exists(output_path): os.makedirs(output_path)
@@ -167,20 +167,6 @@ def mip_constraints(rectangles, W, H, profits, mid):
     # Total profit constraint: selected rectangles must achieve profit at least mid.
     solver.Add(solver.Sum([xs[i] * profits[i] for i in range(n)]) >= mid)
     
-    # --- Symmetry constraints ---
-    # [1] If two rectangles are identical, fix a consistent ordering.
-    for i in range(n):
-        for j in range(i+1, n):
-            if rectangles[i] == rectangles[j]:
-                solver.Add(x[i] <= x[j])
-                solver.Add(y[i] <= y[j])
-    # [2] Domain symmetry: restrict the horizontal domain for some rectangles.
-    # (Using the second element of the tuple to compute max_width as in your original code.)
-    max_width = max(rect[1] for rect in rectangles)
-    for i, (wi, hi, _) in enumerate(rectangles):
-        if wi == max_width:
-            solver.Add(x[i] <= (W - wi) // 2)
-    
     # Objective: maximize total profit.
     objective = solver.Sum([xs[i] * profits[i] for i in range(n)])
     solver.Maximize(objective)
@@ -208,7 +194,7 @@ def max_profit_solution():
     folder_path = '../miss_data/'
     for file_name in os.listdir(folder_path):
         file_path = os.path.join(folder_path, file_name)
-        if os.path.isfile(file_path) and file_name.endswith('.txt') and file_name == "cw2.txt" or file_name == "cw3.txt":
+        if os.path.isfile(file_path) and file_name.endswith('.txt') and file_name == "wang1.txt" or file_name == "wang2.txt" or file_name == "wang3.txt":
             print(f"Processing file: {file_name}")
             with open(file_path, 'r') as file:
                 lines = file.readlines()

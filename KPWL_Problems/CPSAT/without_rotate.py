@@ -77,73 +77,51 @@ def export_csv(problem_name, method_name, time, result, num_var, num_clause, max
 
 
 def CPSAT_constraints(rectangles, W, H, profits, mid):
-
     model = cp_model.CpModel()
     n = len(rectangles)
+    
     # Decision variables
     x = [model.NewIntVar(0, W, f'x_{i}') for i in range(n)]
     y = [model.NewIntVar(0, H, f'y_{i}') for i in range(n)]
-    r = [model.NewBoolVar(f'r_{i}') for i in range(n)]   # 0 = no rotation, 1 = rotated
     xs = [model.NewBoolVar(f'sel_{i}') for i in range(n)]  # Selection variable
-
-    # For each rectangle, enforce that if it is selected then its placed coordinates
-    # plus its effective width/height (which depend on rotation) stay within the bin.
+    
+    # Placement constraints (ensuring rectangles stay within the bin)
     for i in range(n):
         wi, hi, _ = rectangles[i]
-        # Effective width: if not rotated: wi, if rotated: hi.
-        # Write it as: wi - (wi - hi)*r[i]
-        effective_width = wi - (wi - hi) * r[i]
-        effective_height = hi - (hi - wi) * r[i]
-
-        # Only enforce the placement constraints if the rectangle is selected.
-        model.Add(x[i] + effective_width <= W).OnlyEnforceIf(xs[i])
-        model.Add(y[i] + effective_height <= H).OnlyEnforceIf(xs[i])
-
-        # If the rectangle does not fit in its original orientation then force rotation.
-        if wi > W or hi > H:
-            model.Add(r[i] == 1)
-        # If it is a square (or cannot be rotated because rotated dims are out-of-bound), prevent rotation.
-        if wi == hi or (wi > H or hi > W):
-            model.Add(r[i] == 0)
-
-    # Non-overlapping constraints.
+        model.Add(x[i] + wi <= W).OnlyEnforceIf(xs[i])
+        model.Add(y[i] + hi <= H).OnlyEnforceIf(xs[i])
+    
+    # Non-overlapping constraints
     for i in range(n):
         for j in range(i + 1, n):
             wi, hi, _ = rectangles[i]
             wj, hj, _ = rectangles[j]
-
-            # Create Boolean literals for the four disjuncts.
+            
+            # Create Boolean literals for the four disjuncts
             b1 = model.NewBoolVar(f'non_overlap_{i}_{j}_1')  # i is to the left of j
             b2 = model.NewBoolVar(f'non_overlap_{i}_{j}_2')  # j is to the left of i
             b3 = model.NewBoolVar(f'non_overlap_{i}_{j}_3')  # i is below j
             b4 = model.NewBoolVar(f'non_overlap_{i}_{j}_4')  # j is below i
-
-            # For rectangle i, effective width = wi - (wi - hi)*r[i]
-            # Enforce: x[i] + effective_width <= x[j]  <==>  b1 is True.
-            model.Add(x[i] + wi - (wi - hi)*r[i] <= x[j]).OnlyEnforceIf(b1)
-            # To force equivalence, enforce the inverse when b1 is false.
-            model.Add(x[i] + wi - (wi - hi)*r[i] >= x[j] + 1).OnlyEnforceIf(b1.Not())
-
-            # Similarly for rectangle j being to the left of i.
-            model.Add(x[j] + wj - (wj - hj)*r[j] <= x[i]).OnlyEnforceIf(b2)
-            model.Add(x[j] + wj - (wj - hj)*r[j] >= x[i] + 1).OnlyEnforceIf(b2.Not())
-
-            # For vertical separation: i is below j.
-            model.Add(y[i] + hi - (hi - wi)*r[i] <= y[j]).OnlyEnforceIf(b3)
-            model.Add(y[i] + hi - (hi - wi)*r[i] >= y[j] + 1).OnlyEnforceIf(b3.Not())
-
-            # And: j is below i.
-            model.Add(y[j] + hj - (hj - wj)*r[j] <= y[i]).OnlyEnforceIf(b4)
-            model.Add(y[j] + hj - (hj - wj)*r[j] >= y[i] + 1).OnlyEnforceIf(b4.Not())
-
-            # Now, if at least one of these disjuncts holds OR if one of the rectangles is not selected,
-            # then the non-overlap requirement is satisfied.
-            # Note: xs[i]==0 is represented as xs[i].Not() in CP-SAT.
+            
+            # Enforce non-overlapping conditions
+            model.Add(x[i] + wi <= x[j]).OnlyEnforceIf(b1)
+            model.Add(x[i] + wi > x[j]).OnlyEnforceIf(b1.Not())
+            
+            model.Add(x[j] + wj <= x[i]).OnlyEnforceIf(b2)
+            model.Add(x[j] + wj > x[i]).OnlyEnforceIf(b2.Not())
+            
+            model.Add(y[i] + hi <= y[j]).OnlyEnforceIf(b3)
+            model.Add(y[i] + hi > y[j]).OnlyEnforceIf(b3.Not())
+            
+            model.Add(y[j] + hj <= y[i]).OnlyEnforceIf(b4)
+            model.Add(y[j] + hj > y[i]).OnlyEnforceIf(b4.Not())
+            
+            # Ensure at least one separation condition is met
             model.AddBoolOr([xs[i].Not(), xs[j].Not(), b1, b2, b3, b4])
-
-    # Profit constraint (assuming profits are given and mid is the minimum total profit).
-    # Since xs[i] is Boolean and profits[i] is a constant, this is linear.
+    
+    # Profit constraint
     model.Add(sum(profits[i] * xs[i] for i in range(n)) >= mid)
+    
 
     # Symmetry breaking constraints.
     # [1] If two rectangles are identical then force a lexicographic order.
@@ -187,10 +165,10 @@ def CPSAT_constraints(rectangles, W, H, profits, mid):
 
 
 def max_profit_solution():
-    folder_path = '../miss_data/'
+    folder_path = '../../dataset/hard/'
     for file_name in os.listdir(folder_path):
         file_path = os.path.join(folder_path, file_name)
-        if os.path.isfile(file_path) and file_name.endswith('.txt') and file_name == 'gcut2.txt':
+        if os.path.isfile(file_path) and file_name.endswith('.txt') and file_name == "gcut2.txt":
             print(f"Processing file: {file_name}")
             with open(file_path, 'r') as file:
                 lines = file.readlines()
@@ -215,9 +193,9 @@ def max_profit_solution():
                     if time.time() - started_time >= 600: 
                         isExport = "TIMEOUT"
                         if prev_sat == []:
-                            export_csv(file_name, "cpsat_rotate_symmetry", time.time() - started_time, "TIMEOUT", 0, 0, 0)
+                            export_csv(file_name, "cpsat_non_rotate", time.time() - started_time, "TIMEOUT", 0, 0, 0)
                             break
-                        export_csv(file_name, "cpsat_rotate_symmetry", time.time() - started_time, "TIMEOUT", 0, 0, prev_sat[3])
+                        export_csv(file_name, "cpsat_non_rotate", time.time() - started_time, "TIMEOUT", 0, 0, 0)
                         break
                     mid = lower_bound + (upper_bound - lower_bound) // 2
                     status = CPSAT_constraints(rectangles, list_strip[0], list_strip[1], profits, mid)
@@ -230,9 +208,9 @@ def max_profit_solution():
                         continue
                 ended_time = time.time()
 
-                if (isExport != "TIMEOUT"):
+                if isExport != "TIMEOUT":
                     if (prev_sat[0]) == "SAT":
-                        export_csv(file_name, "cpsat_rotate_symmetry", ended_time - started_time, "SAT", prev_sat[1], prev_sat[2], prev_sat[3])
-                    else: export_csv(file_name, "cpsat_rotate_symmetry", ended_time - started_time, "UNSAT", 0, 0, 0)
+                        export_csv(file_name, "cpsat_non_rotate", ended_time - started_time, "SAT", prev_sat[1], prev_sat[2], prev_sat[3])
+                    else: export_csv(file_name, "cpsat_non_rotate", ended_time - started_time, "UNSAT", 0, 0, 0)
 
 max_profit_solution()

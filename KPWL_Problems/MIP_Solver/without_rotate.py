@@ -34,7 +34,7 @@ def write_to_xlsx(result_dict):
     excel_results = []
     excel_results.append(result_dict)
 
-    output_path =  'miss_data_out/'
+    output_path =  'non_rotate/'
 
     # Write the results to an Excel file
     if not os.path.exists(output_path): os.makedirs(output_path)
@@ -79,71 +79,48 @@ def export_csv(problem_name, method_name, time, result, num_var, num_clause, max
 def mip_constraints(rectangles, W, H, profits, mid):
     # Create the SCIP solver.
     solver = pywraplp.Solver.CreateSolver('SCIP')
+    solver.set_time_limit(600)
 
     n = len(rectangles)
     
     # Decision variables:
     # x[i], y[i] – lower‐left coordinates (integers)
-    # r[i] – rotation binary variable (0: no rotation, 1: rotated)
     # xs[i] – selection binary variable (1 if rectangle i is used)
     x = [solver.IntVar(0, W, f'x_{i}') for i in range(n)]
     y = [solver.IntVar(0, H, f'y_{i}') for i in range(n)]
-    r = [solver.BoolVar(f'r_{i}') for i in range(n)]
     xs = [solver.BoolVar(f'xs_{i}') for i in range(n)]
     
-    # For each rectangle, we define the “effective” width and height as a linear expression.
-    # If not rotated (r[i]==0): width = wi, height = hi.
-    # If rotated    (r[i]==1): width = hi, height = wi.
-    # We write: width = wi + (hi - wi)*r[i], and similarly for height.
+    # For each rectangle, the effective width and height are its original dimensions.
     for i in range(n):
         wi, hi, _ = rectangles[i]
-        width_expr  = wi + (hi - wi) * r[i]
-        height_expr = hi + (wi - hi) * r[i]
+        width_expr  = wi
+        height_expr = hi
         
         # Big-M values for boundary constraints.
-        # When xs[i]==0, the constraint is relaxed.
         big_M_x = W + max(wi, hi)
         big_M_y = H + max(wi, hi)
         
         # If rectangle i is selected then it must lie completely within the bin:
-        # x[i] + width_expr <= W   (when xs[i]==1)
-        # We enforce this via: x[i] + width_expr <= W + big_M*(1 - xs[i])
         solver.Add(x[i] + width_expr <= W + big_M_x * (1 - xs[i]))
         solver.Add(y[i] + height_expr <= H + big_M_y * (1 - xs[i]))
-        
-        # Enforce rotation rules:
-        # (a) If the rectangle in its original orientation is out‐of‐bin, force rotation.
-        if wi > W or hi > H:
-            solver.Add(r[i] == 1)
-        # (b) If it is a square or “non‐rotatable” (e.g. out‐of‐bin when rotated in the other way),
-        # then force r[i] to 0.
-        if wi == hi or (wi > H or hi > W):
-            solver.Add(r[i] == 0)
     
     # For non-overlap, if both rectangles i and j are selected, then one of the following must hold:
     #   [1] Rectangle i is to the left of j,
     #   [2] Rectangle j is to the left of i,
     #   [3] Rectangle i is below j, or
     #   [4] Rectangle j is below i.
-    # We introduce four binary variables b_{i,j,k} (k=1,2,3,4) to select one of these.
-    # Then, using big-M constraints, we write for instance:
-    #   x[i] + width_i <= x[j] + M*(1 - b_{i,j,1})
-    # and finally require that if both are selected, then:
-    #   b_{i,j,1} + b_{i,j,2} + b_{i,j,3} + b_{i,j,4} >= xs[i] + xs[j] - 1.
-    #
-    # We choose a global big-M for horizontal and vertical separation.
     global_big_M_x = W + max(max(rect[0], rect[1]) for rect in rectangles)
     global_big_M_y = H + max(max(rect[0], rect[1]) for rect in rectangles)
     
-    # Create and add non-overlap constraints for each pair (i,j)
+    # Create and add non-overlap constraints for each pair (i, j)
     for i in range(n):
         for j in range(i+1, n):
             wi, hi, _ = rectangles[i]
             wj, hj, _ = rectangles[j]
-            width_i  = wi + (hi - wi) * r[i]
-            height_i = hi + (wi - hi) * r[i]
-            width_j  = wj + (hj - wj) * r[j]
-            height_j = hj + (wj - hj) * r[j]
+            width_i  = wi
+            height_i = hi
+            width_j  = wj
+            height_j = hj
             
             # Create four binary variables for the four disjuncts.
             b1 = solver.BoolVar(f'b_{i}_{j}_1')
@@ -160,8 +137,7 @@ def mip_constraints(rectangles, W, H, profits, mid):
             # [4] j is below i:
             solver.Add(y[j] + height_j <= y[i] + global_big_M_y * (1 - b4))
             
-            # If both rectangles are selected (xs[i] = xs[j] = 1) then at least one of the four
-            # disjuncts must hold.
+            # If both rectangles are selected then at least one of the four disjuncts must hold.
             solver.Add(b1 + b2 + b3 + b4 >= xs[i] + xs[j] - 1)
     
     # Total profit constraint: selected rectangles must achieve profit at least mid.
@@ -175,7 +151,6 @@ def mip_constraints(rectangles, W, H, profits, mid):
                 solver.Add(x[i] <= x[j])
                 solver.Add(y[i] <= y[j])
     # [2] Domain symmetry: restrict the horizontal domain for some rectangles.
-    # (Using the second element of the tuple to compute max_width as in your original code.)
     max_width = max(rect[1] for rect in rectangles)
     for i, (wi, hi, _) in enumerate(rectangles):
         if wi == max_width:
@@ -208,7 +183,7 @@ def max_profit_solution():
     folder_path = '../miss_data/'
     for file_name in os.listdir(folder_path):
         file_path = os.path.join(folder_path, file_name)
-        if os.path.isfile(file_path) and file_name.endswith('.txt') and file_name == "cw2.txt" or file_name == "cw3.txt":
+        if os.path.isfile(file_path) and file_name.endswith('.txt'):
             print(f"Processing file: {file_name}")
             with open(file_path, 'r') as file:
                 lines = file.readlines()
@@ -233,9 +208,9 @@ def max_profit_solution():
                     if (time.time() - started_time >= 600): 
                         isExport = "TIMEOUT"
                         if prev_sat == []:
-                            export_csv(file_name, "mip_rotate_symmetry", time.time() - started_time, "TIMEOUT", 0, 0, 0)
+                            export_csv(file_name, "mip_non_rotate", time.time() - started_time, "TIMEOUT", 0, 0, 0)
                             break
-                        export_csv(file_name, "mip_rotate_symmetry", time.time() - started_time, "TIMEOUT", prev_sat[1], prev_sat[2], prev_sat[3])
+                        export_csv(file_name, "mip_non_rotate", time.time() - started_time, "TIMEOUT", prev_sat[1], prev_sat[2], prev_sat[3])
                         break
                     mid = lower_bound + (upper_bound - lower_bound) // 2
                     status = mip_constraints(rectangles, list_strip[0], list_strip[1], profits, mid)
@@ -250,7 +225,7 @@ def max_profit_solution():
 
                 if isExport != "TIMEOUT":
                     if (prev_sat != [] and prev_sat[0]) == "SAT":
-                        export_csv(file_name, "mip_rotate_symmetry", ended_time - started_time, "SAT", prev_sat[1], prev_sat[2], prev_sat[3])
-                    else: export_csv(file_name, "mip_rotate_symmetry", ended_time - started_time, "UNSAT", 0, 0, 0)
+                        export_csv(file_name, "mip_non_rotate", ended_time - started_time, "SAT", prev_sat[1], prev_sat[2], prev_sat[3])
+                    else: export_csv(file_name, "mip_non_rotate", ended_time - started_time, "UNSAT", 0, 0, 0)
 
 max_profit_solution()
