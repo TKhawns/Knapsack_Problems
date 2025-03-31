@@ -34,7 +34,7 @@ def write_to_xlsx(result_dict):
     excel_results = []
     excel_results.append(result_dict)
 
-    output_path =  'non_rotate/'
+    output_path =  'out_non_rotate/'
 
     # Write the results to an Excel file
     if not os.path.exists(output_path): os.makedirs(output_path)
@@ -60,7 +60,7 @@ def write_to_xlsx(result_dict):
 
     else: df.to_excel(excel_file_path, index=False, sheet_name='Results', header=False)
 
-def export_csv(problem_name, method_name, time, result, num_var, num_clause, max_profit):
+def export_csv(problem_name, method_name, time, result, num_var, num_clause, max_profit, weights):
     global id_counter
     id_counter += 1
     result_dict = {
@@ -71,12 +71,13 @@ def export_csv(problem_name, method_name, time, result, num_var, num_clause, max
         "Result": result,
         "Variables": num_var,
         "Clauses": num_clause,
-        "Max profit": max_profit
+        "Max profit": max_profit,
+        "Weights": weights
     }
     write_to_xlsx(result_dict)
 
 
-def mip_constraints(rectangles, W, H, profits, mid):
+def mip_constraints(rectangles, W, H, profits, mid, C, weights):
     # Create the SCIP solver.
     solver = pywraplp.Solver.CreateSolver('SCIP')
     solver.set_time_limit(600)
@@ -92,7 +93,7 @@ def mip_constraints(rectangles, W, H, profits, mid):
     
     # For each rectangle, the effective width and height are its original dimensions.
     for i in range(n):
-        wi, hi, _ = rectangles[i]
+        wi, hi, _, _ = rectangles[i]
         width_expr  = wi
         height_expr = hi
         
@@ -115,8 +116,8 @@ def mip_constraints(rectangles, W, H, profits, mid):
     # Create and add non-overlap constraints for each pair (i, j)
     for i in range(n):
         for j in range(i+1, n):
-            wi, hi, _ = rectangles[i]
-            wj, hj, _ = rectangles[j]
+            wi, hi, _, _ = rectangles[i]
+            wj, hj, _, _ = rectangles[j]
             width_i  = wi
             height_i = hi
             width_j  = wj
@@ -142,7 +143,8 @@ def mip_constraints(rectangles, W, H, profits, mid):
     
     # Total profit constraint: selected rectangles must achieve profit at least mid.
     solver.Add(solver.Sum([xs[i] * profits[i] for i in range(n)]) >= mid)
-    
+    solver.Add(solver.Sum([xs[i] * weights[i] for i in range(n)]) <= C)
+
     # --- Symmetry constraints ---
     # [1] If two rectangles are identical, fix a consistent ordering.
     for i in range(n):
@@ -152,7 +154,7 @@ def mip_constraints(rectangles, W, H, profits, mid):
                 solver.Add(y[i] <= y[j])
     # [2] Domain symmetry: restrict the horizontal domain for some rectangles.
     max_width = max(rect[1] for rect in rectangles)
-    for i, (wi, hi, _) in enumerate(rectangles):
+    for i, (wi, hi, _, _) in enumerate(rectangles):
         if wi == max_width:
             solver.Add(x[i] <= (W - wi) // 2)
     
@@ -176,11 +178,12 @@ def mip_constraints(rectangles, W, H, profits, mid):
         num_var = solver.NumVariables()
         num_constr = solver.NumConstraints()
         total_profit = sum(rect[2] for rect in selected_rectangles)
-        return ['SAT', total_profit, num_var, num_constr]
+        total_weight = sum(rect[3] for rect in selected_rectangles)
+        return ['SAT', total_profit, num_var, num_constr, total_weight]
     else:
         return ["UNSAT"]
 def max_profit_solution():
-    folder_path = '../miss_data/'
+    folder_path = '../dataset/all_data_weight'
     for file_name in os.listdir(folder_path):
         file_path = os.path.join(folder_path, file_name)
         if os.path.isfile(file_path) and file_name.endswith('.txt'):
@@ -191,6 +194,7 @@ def max_profit_solution():
                 widths = list(map(int, lines[1].strip().split()))
                 heights = list(map(int, lines[2].strip().split()))
                 profits = list(map(int, lines[3].strip().split()))
+                weights = list(map(int, lines[4].strip().split()))
                 num_items = len(widths)
 
                 # Get list rectangles from input data.
@@ -199,7 +203,7 @@ def max_profit_solution():
                 lower_bound = min(profits)
                 upper_bound = sum(profits)
                 for j in range (0, num_items):
-                    item = (widths[j], heights[j], profits[j])
+                    item = (widths[j], heights[j], profits[j], weights[j])
                     rectangles.append(item)
 
                 isExport = ""
@@ -208,12 +212,12 @@ def max_profit_solution():
                     if (time.time() - started_time >= 600): 
                         isExport = "TIMEOUT"
                         if prev_sat == []:
-                            export_csv(file_name, "mip_non_rotate", time.time() - started_time, "TIMEOUT", 0, 0, 0)
+                            export_csv(file_name, "mip_non_rotate", time.time() - started_time, "TIMEOUT", 0, 0, 0, 0)
                             break
-                        export_csv(file_name, "mip_non_rotate", time.time() - started_time, "TIMEOUT", prev_sat[1], prev_sat[2], prev_sat[3])
+                        export_csv(file_name, "mip_non_rotate", time.time() - started_time, "TIMEOUT", prev_sat[1], prev_sat[2], prev_sat[3], prev_sat[4])
                         break
                     mid = lower_bound + (upper_bound - lower_bound) // 2
-                    status = mip_constraints(rectangles, list_strip[0], list_strip[1], profits, mid)
+                    status = mip_constraints(rectangles, list_strip[0], list_strip[1], profits, mid, list_strip[2], weights)
                     if (status[0] == "UNSAT"):
                         upper_bound = mid
                         continue
@@ -225,7 +229,7 @@ def max_profit_solution():
 
                 if isExport != "TIMEOUT":
                     if (prev_sat != [] and prev_sat[0]) == "SAT":
-                        export_csv(file_name, "mip_non_rotate", ended_time - started_time, "SAT", prev_sat[1], prev_sat[2], prev_sat[3])
-                    else: export_csv(file_name, "mip_non_rotate", ended_time - started_time, "UNSAT", 0, 0, 0)
+                        export_csv(file_name, "mip_non_rotate", ended_time - started_time, "SAT", prev_sat[1], prev_sat[2], prev_sat[3], prev_sat[4])
+                    else: export_csv(file_name, "mip_non_rotate", ended_time - started_time, "UNSAT", 0, 0, 0, 0)
 
 max_profit_solution()

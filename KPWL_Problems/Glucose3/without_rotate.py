@@ -43,7 +43,7 @@ def write_to_xlsx(result_dict):
     excel_results = []
     excel_results.append(result_dict)
 
-    output_path =  'test/'
+    output_path =  'out_non_rotate/'
 
     # Write the results to an Excel file
     if not os.path.exists(output_path): os.makedirs(output_path)
@@ -69,7 +69,7 @@ def write_to_xlsx(result_dict):
 
     else: df.to_excel(excel_file_path, index=False, sheet_name='Results', header=False)
 
-def export_csv(problem_name, method_name, time, result, num_var, num_clause,num_var_solver,num_clause_solver,  max_profit):
+def export_csv(problem_name, method_name, time, result, num_var, num_clause,num_var_solver,num_clause_solver, max_profit, weight):
     global id_counter
     id_counter += 1
     result_dict = {
@@ -82,7 +82,8 @@ def export_csv(problem_name, method_name, time, result, num_var, num_clause,num_
         "Clauses count": num_clause,
         "Variables solver": num_var_solver,
         "Clauses solver": num_clause_solver,
-        "Max profit": max_profit
+        "Max profit": max_profit,
+        "Weight": weight
     }
     write_to_xlsx(result_dict)
 
@@ -100,7 +101,7 @@ def pos_i(i, k, profit):
     else:
         return k
 
-def glucose_constraints(rectangles, width, height, k, profit):
+def glucose_constraints(rectangles, width, height, k, profit, C, weights):
     # Define the variables
     strip = [width, height]
     cnf = CNF()
@@ -114,6 +115,7 @@ def glucose_constraints(rectangles, width, height, k, profit):
     n_scpb = n
     # Create map_register to hold the auxiliary variables
     map_register = [[0 for _ in range(k + 1)] for _ in range(n_scpb + 1)]
+    map_register2 = [[0 for _ in range(C + 1)] for _ in range(n_scpb + 1)]
 
     # a_i = True (1) if item i is selected.
     for i in range(n):
@@ -148,6 +150,44 @@ def glucose_constraints(rectangles, width, height, k, profit):
         for j in range(1, n_bits + 1):
             map_register[i][j] = counter
             counter += 1
+    for i in range(1, n_scpb):
+        n_bits = pos_i(i, C, weights)
+        for j in range(1, n_bits + 1):
+            map_register2[i][j] = counter
+            counter += 1
+
+    # Weight constraints
+    # (0) if weight[i] > k => x[i] False
+    for i in range(1, n_scpb):
+        if weights[i] > C:
+            cnf.append([-vars[i]])
+            constraint_count += 1
+
+    # (1) X_i -> R_i,j for j = 1 to w_i k
+    for i in range(1, n_scpb):
+        for j in range(1, weights[i] + 1):
+            if j <= pos_i(i, C, weights):
+                cnf.append([-variables[f"a{i}"], map_register2[i][j]])
+                constraint_count += 1
+
+    # (2) R_{i-1,j} -> R_i,j for j = 1 to pos_{i-1}
+    for i in range(2, n_scpb):
+        for j in range(1, pos_i(i - 1, C, weights) + 1):
+            cnf.append([-map_register2[i - 1][j], map_register2[i][j]])
+            constraint_count += 1
+
+    # (3) X_i ^ R_{i-1,j} -> R_i,j+w_i for j = 1 to pos_{i-1}
+    for i in range(2, n_scpb):
+        for j in range(1, pos_i(i - 1, C, weights) + 1):
+            if j + weights[i] <= C and j + weights[i] <= pos_i(i, C, weights):
+                cnf.append([-variables[f"a{i}"], -map_register2[i - 1][j], map_register2[i][j + weights[i]]])
+                constraint_count += 1
+
+    # (8) At Most K: X_i -> ¬R_{i-1,k+1-w_i} for i = 2 to n 
+    for i in range(2, n_scpb):
+        if C + 1 - weights[i] > 0 and C + 1 - weights[i] <= pos_i(i - 1, C, weights):
+            cnf.append([-variables[f"a{i}"], -map_register2[i - 1][C + 1 - weights[i]]])
+
 
     # (1) X_i -> R_i,j for j = 1 to w_i
     for i in range(1, n_scpb):
@@ -368,20 +408,22 @@ def glucose_constraints(rectangles, width, height, k, profit):
             # From SAT result, decode into rectangles' position.
             selected_rectangles = []
             result_max_profit = 0
+            result_total_weight = 0
 
             for i in range(n):
                 selected_rectangles.append(result[f"a{i + 1}"])
                 if selected_rectangles[i] == True:
                     result_max_profit += rectangles[i][2]
+                    result_total_weight += rectangles[i][3]
 
             # display_solution(strip, result_rectangle, res_pos)
-            return ["SAT", result_max_profit, counter-1, constraint_count, num_vars, num_clauses]
+            return ["SAT", result_max_profit, counter-1, constraint_count, num_vars, num_clauses, result_total_weight]
 
 def max_profit_solution():
     folder_path = '../miss_data/'
     for file_name in os.listdir(folder_path):
         file_path = os.path.join(folder_path, file_name)
-        if os.path.isfile(file_path) and file_name.endswith('.txt') and file_name == "gcut1.txt":
+        if os.path.isfile(file_path) and file_name.endswith('.txt'):
             print(f"Processing file: {file_name}")
             with open(file_path, 'r') as file:
                 lines = file.readlines()
@@ -389,6 +431,7 @@ def max_profit_solution():
                 widths = list(map(int, lines[1].strip().split()))
                 heights = list(map(int, lines[2].strip().split()))
                 profits = list(map(int, lines[3].strip().split()))
+                weights = list(map(int, lines[4].strip().split()))
                 num_items = len(widths)
 
                 # Get list rectangles from input data.
@@ -397,7 +440,7 @@ def max_profit_solution():
                 lower_bound = min(profits)
                 upper_bound = sum(profits)
                 for j in range (0, num_items):
-                    item = (widths[j], heights[j], profits[j])
+                    item = (widths[j], heights[j], profits[j], weights[j])
                     rectangles.append(item)
 
                 started_time = time.time()
@@ -405,11 +448,11 @@ def max_profit_solution():
                 while (lower_bound + 1 < upper_bound):
                     if (time.time() - started_time >= 600):
                         isExport = "TIMEOUT"
-                        export_csv(file_name, "glucose_non_rotate_symmetry", time.time() - started_time, "TIMEOUT", 0, 0, 0, 0, 0)
+                        export_csv(file_name, "glucose_non_rotate_symmetry", time.time() - started_time, "TIMEOUT", 0, 0, 0, 0, 0, 0)
                         break
                     mid = lower_bound + (upper_bound - lower_bound) // 2
                     print(mid)
-                    status = glucose_constraints(rectangles, list_strip[0], list_strip[1], mid, profits)
+                    status = glucose_constraints(rectangles, list_strip[0], list_strip[1], mid, profits, list_strip[2], weights)
                     if (status[0] == "UNSAT"):
                         upper_bound = mid
                         continue
@@ -421,8 +464,8 @@ def max_profit_solution():
 
                 if (isExport != "TIMEOUT"):
                     if (prev_sat[0]) == "SAT":
-                        export_csv(file_name, "glucose_non_rotate_symmetry", ended_time - started_time, "SAT", prev_sat[2], prev_sat[3], prev_sat[4], prev_sat[5], prev_sat[1])
-                    else: export_csv(file_name, "glucose_non_rotate_symmetry", ended_time - started_time, "UNSAT", 0, 0, 0, 0, 0 )
+                        export_csv(file_name, "glucose_non_rotate_symmetry", ended_time - started_time, "SAT", prev_sat[2], prev_sat[3], prev_sat[4], prev_sat[5], prev_sat[1], prev_sat[6])
+                    else: export_csv(file_name, "glucose_non_rotate_symmetry", ended_time - started_time, "UNSAT", 0, 0, 0, 0, 0, 0)
 
 
 max_profit_solution()

@@ -34,7 +34,7 @@ def write_to_xlsx(result_dict):
     excel_results = []
     excel_results.append(result_dict)
 
-    output_path =  'miss_data_out/'
+    output_path =  'output_rotate/'
 
     # Write the results to an Excel file
     if not os.path.exists(output_path): os.makedirs(output_path)
@@ -60,7 +60,7 @@ def write_to_xlsx(result_dict):
 
     else: df.to_excel(excel_file_path, index=False, sheet_name='Results', header=False)
 
-def export_csv(problem_name, method_name, time, result, num_var, num_clause, max_profit):
+def export_csv(problem_name, method_name, time, result, num_var, num_clause, max_profit, weight):
     global id_counter
     id_counter += 1
     result_dict = {
@@ -71,12 +71,13 @@ def export_csv(problem_name, method_name, time, result, num_var, num_clause, max
         "Result": result,
         "Variables": num_var,
         "Clauses": num_clause,
-        "Max profit": max_profit
+        "Max profit": max_profit,
+        "Weight": weight
     }
     write_to_xlsx(result_dict)
 
 
-def CPSAT_constraints(rectangles, W, H, profits, mid):
+def CPSAT_constraints(rectangles, W, H, profits, mid, C, weights):
 
     model = cp_model.CpModel()
     n = len(rectangles)
@@ -89,7 +90,7 @@ def CPSAT_constraints(rectangles, W, H, profits, mid):
     # For each rectangle, enforce that if it is selected then its placed coordinates
     # plus its effective width/height (which depend on rotation) stay within the bin.
     for i in range(n):
-        wi, hi, _ = rectangles[i]
+        wi, hi, _, _= rectangles[i]
         # Effective width: if not rotated: wi, if rotated: hi.
         # Write it as: wi - (wi - hi)*r[i]
         effective_width = wi - (wi - hi) * r[i]
@@ -109,8 +110,8 @@ def CPSAT_constraints(rectangles, W, H, profits, mid):
     # Non-overlapping constraints.
     for i in range(n):
         for j in range(i + 1, n):
-            wi, hi, _ = rectangles[i]
-            wj, hj, _ = rectangles[j]
+            wi, hi, _, _ = rectangles[i]
+            wj, hj, _, _ = rectangles[j]
 
             # Create Boolean literals for the four disjuncts.
             b1 = model.NewBoolVar(f'non_overlap_{i}_{j}_1')  # i is to the left of j
@@ -144,6 +145,7 @@ def CPSAT_constraints(rectangles, W, H, profits, mid):
     # Profit constraint (assuming profits are given and mid is the minimum total profit).
     # Since xs[i] is Boolean and profits[i] is a constant, this is linear.
     model.Add(sum(profits[i] * xs[i] for i in range(n)) >= mid)
+    model.Add(sum(weights[i] * xs[i] for i in range(n)) <= C)
 
     # Symmetry breaking constraints.
     # [1] If two rectangles are identical then force a lexicographic order.
@@ -156,7 +158,7 @@ def CPSAT_constraints(rectangles, W, H, profits, mid):
     # [2] For rectangles with the maximum width, restrict their horizontal domain.
     max_width_val = max(rect[0] for rect in rectangles)  # Assuming rect[0] is the width.
     for i, rect in enumerate(rectangles):
-        wi, hi, _ = rect
+        wi, hi, _, _ = rect
         if wi == max_width_val:
             max_domain = (W - wi) // 2
             model.Add(x[i] <= max_domain)
@@ -181,16 +183,17 @@ def CPSAT_constraints(rectangles, W, H, profits, mid):
                 selected_rectangles.append(rectangles[i])
                 pos.append([solver.value(x[i]), solver.value(y[i])])
         profits = sum(rec[2] for rec in selected_rectangles)
-        return ["SAT", num_vars, num_clauses, profits]
+        total_weight = sum(rec[3] for rec in selected_rectangles)
+        return ["SAT", num_vars, num_clauses, profits, total_weight]
     else:
         return ["UNSAT", num_vars, num_clauses]
 
 
 def max_profit_solution():
-    folder_path = '../miss_data/'
+    folder_path = '../dataset/all_data_weight'
     for file_name in os.listdir(folder_path):
         file_path = os.path.join(folder_path, file_name)
-        if os.path.isfile(file_path) and file_name.endswith('.txt') and file_name == 'gcut2.txt':
+        if os.path.isfile(file_path) and file_name.endswith('.txt'):
             print(f"Processing file: {file_name}")
             with open(file_path, 'r') as file:
                 lines = file.readlines()
@@ -198,6 +201,7 @@ def max_profit_solution():
                 widths = list(map(int, lines[1].strip().split()))
                 heights = list(map(int, lines[2].strip().split()))
                 profits = list(map(int, lines[3].strip().split()))
+                weights = list(map(int, lines[4].strip().split()))
                 num_items = len(widths)
 
                 # Get list rectangles from input data.
@@ -206,7 +210,7 @@ def max_profit_solution():
                 lower_bound = min(profits)
                 upper_bound = sum(profits)
                 for j in range (0, num_items):
-                    item = (widths[j], heights[j], profits[j])
+                    item = (widths[j], heights[j], profits[j], weights[j])
                     rectangles.append(item)
 
                 isExport = ""
@@ -215,12 +219,12 @@ def max_profit_solution():
                     if time.time() - started_time >= 600: 
                         isExport = "TIMEOUT"
                         if prev_sat == []:
-                            export_csv(file_name, "cpsat_rotate_symmetry", time.time() - started_time, "TIMEOUT", 0, 0, 0)
+                            export_csv(file_name, "cpsat_rotate_symmetry", time.time() - started_time, "TIMEOUT", 0, 0, 0, 0)
                             break
-                        export_csv(file_name, "cpsat_rotate_symmetry", time.time() - started_time, "TIMEOUT", 0, 0, prev_sat[3])
+                        export_csv(file_name, "cpsat_rotate_symmetry", time.time() - started_time, "TIMEOUT", 0, 0, prev_sat[3], prev_sat[4])
                         break
                     mid = lower_bound + (upper_bound - lower_bound) // 2
-                    status = CPSAT_constraints(rectangles, list_strip[0], list_strip[1], profits, mid)
+                    status = CPSAT_constraints(rectangles, list_strip[0], list_strip[1], profits, mid, list_strip[2], weights)
                     if (status[0] == "UNSAT"):
                         upper_bound = mid
                         continue
@@ -232,7 +236,7 @@ def max_profit_solution():
 
                 if (isExport != "TIMEOUT"):
                     if (prev_sat[0]) == "SAT":
-                        export_csv(file_name, "cpsat_rotate_symmetry", ended_time - started_time, "SAT", prev_sat[1], prev_sat[2], prev_sat[3])
-                    else: export_csv(file_name, "cpsat_rotate_symmetry", ended_time - started_time, "UNSAT", 0, 0, 0)
+                        export_csv(file_name, "cpsat_rotate_symmetry", ended_time - started_time, "SAT", prev_sat[1], prev_sat[2], prev_sat[3], prev_sat[4])
+                    else: export_csv(file_name, "cpsat_rotate_symmetry", ended_time - started_time, "UNSAT", 0, 0, 0, 0)
 
 max_profit_solution()

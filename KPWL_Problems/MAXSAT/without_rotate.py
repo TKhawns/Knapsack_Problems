@@ -42,7 +42,7 @@ def write_to_xlsx(result_dict):
     excel_results = []
     excel_results.append(result_dict)
 
-    output_path =  'output/'
+    output_path =  'out_non_rotate/'
 
     # Write the results to an Excel file
     if not os.path.exists(output_path): os.makedirs(output_path)
@@ -68,7 +68,7 @@ def write_to_xlsx(result_dict):
 
     else: df.to_excel(excel_file_path, index=False, sheet_name='Results', header=False)
 
-def export_csv(problem_name, method_name, time, result, num_var, num_clause, max_profit):
+def export_csv(problem_name, method_name, time, result, num_var, num_clause, max_profit, weights):
     global id_counter
     id_counter += 1
     result_dict = {
@@ -79,7 +79,8 @@ def export_csv(problem_name, method_name, time, result, num_var, num_clause, max
         "Result": result,
         "Variables": num_var,
         "Clauses": num_clause,
-        "Max profit": max_profit
+        "Max profit": max_profit,
+        "Weights": weights
     }
     write_to_xlsx(result_dict)
 
@@ -88,7 +89,7 @@ def positive_range(end):
         return []
     return range(end)
 
-def maxsat_constraints(rectangles, strip, profits, file_name):
+def maxsat_constraints(rectangles, strip, profits, file_name, weights):
     # Define the variables
     cnf = WCNF()
     variables = {}
@@ -97,6 +98,7 @@ def maxsat_constraints(rectangles, strip, profits, file_name):
     constraint_count = 0
     width = strip[0]
     height = strip[1]
+    C = strip[2]
     # find max height and width rectangles for largest rectangle symmetry breaking
     max_height = max([int(rectangle[1]) for rectangle in rectangles])
     max_width = max([int(rectangle[0]) for rectangle in rectangles])
@@ -105,6 +107,45 @@ def maxsat_constraints(rectangles, strip, profits, file_name):
     for i in range(n):
         variables[f"a{i + 1}"] = counter
         counter += 1
+
+    map_register2 = [[0 for _ in range(C + 1)] for _ in range(n_scpb + 1)]
+    for i in range(1, n_scpb):
+        n_bits = pos_i(i, C, weights)
+        for j in range(1, n_bits + 1):
+            map_register2[i][j] = counter
+            counter += 1
+    # Weight constraints
+    # (0) if weight[i] > k => x[i] False
+    for i in range(1, n_scpb):
+        if weights[i] > C:
+            cnf.append([-vars[i]])
+            constraint_count += 1
+
+    # (1) X_i -> R_i,j for j = 1 to w_i k
+    for i in range(1, n_scpb):
+        for j in range(1, weights[i] + 1):
+            if j <= pos_i(i, C, weights):
+                cnf.append([-variables[f"a{i}"], map_register2[i][j]])
+                constraint_count += 1
+
+    # (2) R_{i-1,j} -> R_i,j for j = 1 to pos_{i-1}
+    for i in range(2, n_scpb):
+        for j in range(1, pos_i(i - 1, C, weights) + 1):
+            cnf.append([-map_register2[i - 1][j], map_register2[i][j]])
+            constraint_count += 1
+
+    # (3) X_i ^ R_{i-1,j} -> R_i,j+w_i for j = 1 to pos_{i-1}
+    for i in range(2, n_scpb):
+        for j in range(1, pos_i(i - 1, C, weights) + 1):
+            if j + weights[i] <= C and j + weights[i] <= pos_i(i, C, weights):
+                cnf.append([-variables[f"a{i}"], -map_register2[i - 1][j], map_register2[i][j + weights[i]]])
+                constraint_count += 1
+
+    # (8) At Most K: X_i -> ¬R_{i-1,k+1-w_i} for i = 2 to n 
+    for i in range(2, n_scpb):
+        if C + 1 - weights[i] > 0 and C + 1 - weights[i] <= pos_i(i - 1, C, weights):
+            cnf.append([-variables[f"a{i}"], -map_register2[i - 1][C + 1 - weights[i]]])
+
 
     for i in range(n):
         for j in range(n):
@@ -264,6 +305,7 @@ def maxsat_constraints(rectangles, strip, profits, file_name):
     signal.signal(signal.SIGALRM, handler)
     signal.alarm(600)  # 5 seconds timeout
     total_profit = 0
+    total_weight = 0
 
     try:
         # add all clauses to SAT solver
@@ -295,8 +337,9 @@ def maxsat_constraints(rectangles, strip, profits, file_name):
                     # Print detailed information for each rectangle
                     if selected_rectangles[i] == True:
                         total_profit += profits[i]
+                        total_weight += weights[i]
      
-                return ["SAT", counter, len(cnf.hard) + len(cnf.soft), total_profit]
+                return ["SAT", counter, len(cnf.hard) + len(cnf.soft), total_profit, total_weight]
             else:
                 return ["UNSAT"]
     except TimeoutError:
@@ -310,10 +353,10 @@ def maxsat_constraints(rectangles, strip, profits, file_name):
         return ["SAT", counter, len(cnf.hard) + len(cnf.soft), total_profit]
 
 def max_profit_solution():
-    folder_path = './miss_data/'
+    folder_path = './dataset/soft'
     for file_name in os.listdir(folder_path):
         file_path = os.path.join(folder_path, file_name)
-        if os.path.isfile(file_path) and file_name.endswith('.txt') and file_name == "gcut1.txt":
+        if os.path.isfile(file_path) and file_name.endswith('.txt'):
             print(f"Processing file: {file_name}")
             with open(file_path, 'r') as file:
                 lines = file.readlines()
@@ -321,25 +364,27 @@ def max_profit_solution():
                 widths = list(map(int, lines[1].strip().split()))
                 heights = list(map(int, lines[2].strip().split()))
                 profits = list(map(int, lines[3].strip().split()))
+                weights = list(map(int, lines[4].strip().split()))
+
                 num_items = len(widths)
 
                 # Get list rectangles from input data.
                 rectangles = []
     
                 for j in range (0, num_items):
-                    item = (widths[j], heights[j], profits[j])
+                    item = (widths[j], heights[j], profits[j], weights[j])
                     rectangles.append(item)
 
                 started_time = time.time()
-                status = maxsat_constraints(rectangles, list_strip, profits, file_name)
+                status = maxsat_constraints(rectangles, list_strip, profits, file_name, weights)
                 end_time = time.time()
-                print(file_name, end_time - started_time)
-                # if status[0] == "TIMEOUT":
-                #     export_csv(file_name, "maxsat_non_rotate", end_time - started_time, "TIMEOUT", 0, 0, 0)
-                # if status[0] == "SAT":
-                #     export_csv(file_name, "maxsat_non_rotate", end_time - started_time, "SAT", status[1], status[2], status[3])
-                # if status[0] == "UNSAT":
-                #     export_csv(file_name, "maxsat_non_rotate", end_time - started_time, "UNSAT", 0, 0, 0)
+                # print(file_name, end_time - started_time)
+                if status[0] == "TIMEOUT":
+                    export_csv(file_name, "maxsat_non_rotate", end_time - started_time, "TIMEOUT", 0, 0, 0, 0)
+                if status[0] == "SAT":
+                    export_csv(file_name, "maxsat_non_rotate", end_time - started_time, "SAT", status[1], status[2], status[3], status[4])
+                if status[0] == "UNSAT":
+                    export_csv(file_name, "maxsat_non_rotate", end_time - started_time, "UNSAT", 0, 0, 0, 0)
 
 max_profit_solution()
 

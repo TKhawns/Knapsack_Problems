@@ -35,7 +35,7 @@ def write_to_xlsx(result_dict):
     excel_results = []
     excel_results.append(result_dict)
 
-    output_path =  'all/'
+    output_path =  'output_rotate/'
 
     # Write the results to an Excel file
     if not os.path.exists(output_path): os.makedirs(output_path)
@@ -60,7 +60,7 @@ def write_to_xlsx(result_dict):
         book.save(excel_file_path)
 
     else: df.to_excel(excel_file_path, index=False, sheet_name='Results', header=False)
-def export_csv(problem_name, method_name, time, result, num_var, num_clause, max_profit):
+def export_csv(problem_name, method_name, time, result, num_var, num_clause, max_profit, weight):
     global id_counter
     id_counter += 1
     result_dict = {
@@ -71,11 +71,12 @@ def export_csv(problem_name, method_name, time, result, num_var, num_clause, max
         "Result": result,
         "Variables": num_var,
         "Clauses": num_clause,
-        "Max profit": max_profit
+        "Max profit": max_profit,
+        "Weight": weight
     }
     write_to_xlsx(result_dict)
 
-def cplex_constraints(rectangles, W, H, profits, mid):
+def cplex_constraints(rectangles, W, H, profits, mid, C, weights):
     # Create the CPO model
     model = CpoModel()
     n = len(rectangles)
@@ -88,7 +89,7 @@ def cplex_constraints(rectangles, W, H, profits, mid):
 
     # Constraints for each rectangle
     for i in range(n):
-        wi, hi, _ = rectangles[i]
+        wi, hi, _, _ = rectangles[i]
 
         # Width and height constraints based on rotation
         model.add(xs[i] * (x[i] + (1 - r[i]) * wi + r[i] * hi) <= W)
@@ -104,8 +105,8 @@ def cplex_constraints(rectangles, W, H, profits, mid):
     # Non-overlapping constraints
     for i in range(n):
         for j in range(i + 1, n):
-            wi, hi, _ = rectangles[i]
-            wj, hj, _ = rectangles[j]
+            wi, hi, _, _ = rectangles[i]
+            wj, hj, _, _ = rectangles[j]
 
             # Non-overlapping constraints with rotation
             cond1 = (x[i] + (1 - r[i]) * wi + r[i] * hi <= x[j])
@@ -122,7 +123,8 @@ def cplex_constraints(rectangles, W, H, profits, mid):
             cond3,
             cond4
             ]))
-
+    
+    model.add(sum(xs[i] * weights[i] for i in range(n)) <= C)
     model.add(sum(xs[i] * profits[i] for i in range(n)) >= mid)
 
     # Symmetry constraints
@@ -135,7 +137,7 @@ def cplex_constraints(rectangles, W, H, profits, mid):
                 model.add(x[i] <= x[j])
                 model.add(y[i] <= y[j])
     # [2] domain.
-    for i, (wi, hi, _) in enumerate(rectangles):
+    for i, (wi, hi, _, _) in enumerate(rectangles):
         if wi == max_width:
             # Restrict horizontal domain
             max_domain = (W - wi) // 2
@@ -156,15 +158,16 @@ def cplex_constraints(rectangles, W, H, profits, mid):
                     positions.append((solution.get_value(x[i]), solution.get_value(y[i])))
         num_var, num_clause = len(model.get_all_variables()), len(model.get_all_expressions())
         profits = sum(rec[2] for rec in selected_rectangles)
-        return ['SAT', selected_rectangles, profits, num_var, num_clause]
+        total_weight = sum(rec[3] for rec in selected_rectangles)
+        return ['SAT', selected_rectangles, profits, num_var, num_clause, total_weight]
     else:
         return ["UNSAT"]
 
 def max_profit_solution():
-    folder_path = '../../dataset/soft/'
+    folder_path = '../dataset/soft/'
     for file_name in os.listdir(folder_path):
         file_path = os.path.join(folder_path, file_name)
-        if os.path.isfile(file_path) and file_name.endswith('.txt') and file_name == "okp1.txt":
+        if os.path.isfile(file_path) and file_name.endswith('.txt'):
             print(f"Processing file: {file_name}")
             with open(file_path, 'r') as file:
                 lines = file.readlines()
@@ -172,6 +175,7 @@ def max_profit_solution():
                 widths = list(map(int, lines[1].strip().split()))
                 heights = list(map(int, lines[2].strip().split()))
                 profits = list(map(int, lines[3].strip().split()))
+                weights = list(map(int, lines[4].strip().split()))
                 num_items = len(widths)
 
                 # Get list rectangles from input data.
@@ -180,7 +184,7 @@ def max_profit_solution():
                 lower_bound = min(profits)
                 upper_bound = sum(profits)
                 for j in range (0, num_items):
-                    item = (widths[j], heights[j], profits[j])
+                    item = (widths[j], heights[j], profits[j], weights[j])
                     rectangles.append(item)
 
                 started_time = time.time()
@@ -189,13 +193,13 @@ def max_profit_solution():
                     if (time.time() - started_time >= 600):
                         isExport = "TIMEOUT"
                         if (prev_sat != []):
-                            export_csv(file_name, "cplex_rotate_symmetry_studio", time.time() - started_time, "TIMEOUT", 0, 0, 0)
+                            export_csv(file_name, "cplex_rotate_symmetry_studio", time.time() - started_time, "TIMEOUT", 0, 0, 0, 0)
                             break
-                        export_csv(file_name, "cplex_rotate_symmetry_studio", time.time() - started_time, "TIMEOUT", 0, 0, 0)
+                        export_csv(file_name, "cplex_rotate_symmetry_studio", time.time() - started_time, "TIMEOUT", 0, 0, 0, 0)
                         break
 
                     mid = lower_bound + (upper_bound - lower_bound) // 2
-                    status = cplex_constraints(rectangles, list_strip[0], list_strip[1], profits, mid)
+                    status = cplex_constraints(rectangles, list_strip[0], list_strip[1], profits, mid, list_strip[2], weights)
                     if (status[0] == "UNSAT"):
                         upper_bound = mid
                         continue
@@ -207,7 +211,7 @@ def max_profit_solution():
 
                 if (isExport != "TIMEOUT"):
                     if (prev_sat[0]) == "SAT":
-                        export_csv(file_name, "cplex_rotate_symmetry_studio", ended_time - started_time, "SAT", prev_sat[3], prev_sat[4], prev_sat[2])
-                    else: export_csv(file_name, "cplex_rotate_symmetry_studio", ended_time - started_time, "UNSAT", 0, 0, 0)
+                        export_csv(file_name, "cplex_rotate_symmetry_studio", ended_time - started_time, "SAT", prev_sat[3], prev_sat[4], prev_sat[2], prev_sat[5])
+                    else: export_csv(file_name, "cplex_rotate_symmetry_studio", ended_time - started_time, "UNSAT", 0, 0, 0, 0)
 
 max_profit_solution()
