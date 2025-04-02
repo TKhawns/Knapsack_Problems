@@ -111,6 +111,7 @@ def glucose_constraints(rectangles, width, height, k, profit, C, weights):
 
     # SCPB Constraints definition
     profit = [0] + profit
+    weights = [0] + weights
     n_scpb = n
     # Create map_register to hold the auxiliary variables
     map_register = [[0 for _ in range(k + 1)] for _ in range(n_scpb + 1)]
@@ -160,7 +161,7 @@ def glucose_constraints(rectangles, width, height, k, profit, C, weights):
     # (0) if weight[i] > k => x[i] False
     for i in range(1, n_scpb):
         if weights[i] > C:
-            cnf.append([-vars[i]])
+            cnf.append([[-variables[f"a{i}"]]])
             constraint_count += 1
 
     # (1) X_i -> R_i,j for j = 1 to w_i k
@@ -184,7 +185,7 @@ def glucose_constraints(rectangles, width, height, k, profit, C, weights):
                 constraint_count += 1
 
     # (8) At Most K: X_i -> ¬R_{i-1,k+1-w_i} for i = 2 to n 
-    for i in range(2, n_scpb):
+    for i in range(2, n_scpb + 1):
         if C + 1 - weights[i] > 0 and C + 1 - weights[i] <= pos_i(i - 1, C, weights):
             cnf.append([-variables[f"a{i}"], -map_register2[i - 1][C + 1 - weights[i]]])
 

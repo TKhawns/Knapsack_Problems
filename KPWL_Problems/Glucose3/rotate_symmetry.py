@@ -111,6 +111,7 @@ def glucose_constraints(rectangles, width, height, k, profit, C, weights):
 
     # SCPB Constraints definition
     profit = [0] + profit
+    weights = [0] + weights
     n_scpb = n
     # Create map_register to hold the auxiliary variables
     map_register = [[0 for _ in range(k + 1)] for _ in range(n_scpb + 1)]
@@ -158,9 +159,9 @@ def glucose_constraints(rectangles, width, height, k, profit, C, weights):
 
     # Weight constraints
     # (0) if weight[i] > k => x[i] False
-    for i in range(1, n_scpb):
+    for i in range(1, n_scpb + 1):
         if weights[i] > C:
-            cnf.append([-vars[i]])
+            cnf.append([-variables[f"a{i}"]])
             constraint_count += 1
 
     # (1) X_i -> R_i,j for j = 1 to w_i k
@@ -184,7 +185,7 @@ def glucose_constraints(rectangles, width, height, k, profit, C, weights):
                 constraint_count += 1
 
     # (8) At Most K: X_i -> ¬R_{i-1,k+1-w_i} for i = 2 to n 
-    for i in range(2, n_scpb):
+    for i in range(2, n_scpb+1):
         if C + 1 - weights[i] > 0 and C + 1 - weights[i] <= pos_i(i - 1, C, weights):
             cnf.append([-variables[f"a{i}"], -map_register2[i - 1][C + 1 - weights[i]]])
 
@@ -518,7 +519,7 @@ def glucose_constraints(rectangles, width, height, k, profit, C, weights):
             return ["SAT", result_max_profit, counter-1, constraint_count, num_vars, num_clauses, result_weight]
 
 def max_profit_solution():
-    folder_path = '../dataset/all_data_weight'
+    folder_path = '../dataset/soft'
     for file_name in os.listdir(folder_path):
         file_path = os.path.join(folder_path, file_name)
         if os.path.isfile(file_path) and file_name.endswith('.txt'):
@@ -549,7 +550,7 @@ def max_profit_solution():
                         export_csv(file_name, "glucose_rotate_symmetry", time.time() - started_time, "TIMEOUT", 0, 0, 0, 0, 0, 0)
                         break
                     mid = lower_bound + (upper_bound - lower_bound) // 2
-                    print(mid)
+                    print(mid, lower_bound, upper_bound)
                     status = glucose_constraints(rectangles, list_strip[0], list_strip[1], mid, profits, list_strip[2], weights)
                     if (status[0] == "UNSAT"):
                         upper_bound = mid
@@ -559,7 +560,6 @@ def max_profit_solution():
                         lower_bound = mid
                         continue
                 ended_time = time.time()
-
                 if (isExport != "TIMEOUT"):
                     if (prev_sat[0]) == "SAT":
                         export_csv(file_name, "glucose_rotate_symmetry", ended_time - started_time, "SAT", prev_sat[2], prev_sat[3], prev_sat[4], prev_sat[5], prev_sat[1], prev_sat[6])

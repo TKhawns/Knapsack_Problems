@@ -164,7 +164,7 @@ def cplex_constraints(rectangles, W, H, profits, mid, C, weights):
         return ["UNSAT"]
 
 def max_profit_solution():
-    folder_path = '../dataset/soft/'
+    folder_path = '../dataset/all_data_weight/'
     for file_name in os.listdir(folder_path):
         file_path = os.path.join(folder_path, file_name)
         if os.path.isfile(file_path) and file_name.endswith('.txt'):

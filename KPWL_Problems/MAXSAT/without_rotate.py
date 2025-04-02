@@ -89,16 +89,27 @@ def positive_range(end):
         return []
     return range(end)
 
+def pos_i(i, k, profit):
+    if i == 0:
+        return 0
+    if i < k:
+        sum_w = sum(profit[1:i+1])
+        return min(k, sum_w)
+    else:
+        return k
+
 def maxsat_constraints(rectangles, strip, profits, file_name, weights):
     # Define the variables
     cnf = WCNF()
     variables = {}
     counter = 1
     n = len(rectangles)
+    n_scpb = n
     constraint_count = 0
     width = strip[0]
     height = strip[1]
     C = strip[2]
+    weight2 = [0] + weights
     # find max height and width rectangles for largest rectangle symmetry breaking
     max_height = max([int(rectangle[1]) for rectangle in rectangles])
     max_width = max([int(rectangle[0]) for rectangle in rectangles])
@@ -110,41 +121,41 @@ def maxsat_constraints(rectangles, strip, profits, file_name, weights):
 
     map_register2 = [[0 for _ in range(C + 1)] for _ in range(n_scpb + 1)]
     for i in range(1, n_scpb):
-        n_bits = pos_i(i, C, weights)
+        n_bits = pos_i(i, C, weight2)
         for j in range(1, n_bits + 1):
             map_register2[i][j] = counter
             counter += 1
     # Weight constraints
     # (0) if weight[i] > k => x[i] False
     for i in range(1, n_scpb):
-        if weights[i] > C:
+        if weight2[i] > C:
             cnf.append([-vars[i]])
             constraint_count += 1
 
     # (1) X_i -> R_i,j for j = 1 to w_i k
     for i in range(1, n_scpb):
-        for j in range(1, weights[i] + 1):
-            if j <= pos_i(i, C, weights):
+        for j in range(1, weight2[i] + 1):
+            if j <= pos_i(i, C, weight2):
                 cnf.append([-variables[f"a{i}"], map_register2[i][j]])
                 constraint_count += 1
 
     # (2) R_{i-1,j} -> R_i,j for j = 1 to pos_{i-1}
     for i in range(2, n_scpb):
-        for j in range(1, pos_i(i - 1, C, weights) + 1):
+        for j in range(1, pos_i(i - 1, C, weight2) + 1):
             cnf.append([-map_register2[i - 1][j], map_register2[i][j]])
             constraint_count += 1
 
     # (3) X_i ^ R_{i-1,j} -> R_i,j+w_i for j = 1 to pos_{i-1}
     for i in range(2, n_scpb):
-        for j in range(1, pos_i(i - 1, C, weights) + 1):
-            if j + weights[i] <= C and j + weights[i] <= pos_i(i, C, weights):
-                cnf.append([-variables[f"a{i}"], -map_register2[i - 1][j], map_register2[i][j + weights[i]]])
+        for j in range(1, pos_i(i - 1, C, weight2) + 1):
+            if j + weight2[i] <= C and j + weight2[i] <= pos_i(i, C, weight2):
+                cnf.append([-variables[f"a{i}"], -map_register2[i - 1][j], map_register2[i][j + weight2[i]]])
                 constraint_count += 1
 
     # (8) At Most K: X_i -> ¬R_{i-1,k+1-w_i} for i = 2 to n 
-    for i in range(2, n_scpb):
-        if C + 1 - weights[i] > 0 and C + 1 - weights[i] <= pos_i(i - 1, C, weights):
-            cnf.append([-variables[f"a{i}"], -map_register2[i - 1][C + 1 - weights[i]]])
+    for i in range(2, n_scpb + 1):
+        if C + 1 - weight2[i] > 0 and C + 1 - weight2[i] <= pos_i(i - 1, C, weight2):
+            cnf.append([-variables[f"a{i}"], -map_register2[i - 1][C + 1 - weight2[i]]])
 
 
     for i in range(n):
@@ -353,7 +364,7 @@ def maxsat_constraints(rectangles, strip, profits, file_name, weights):
         return ["SAT", counter, len(cnf.hard) + len(cnf.soft), total_profit]
 
 def max_profit_solution():
-    folder_path = './dataset/soft'
+    folder_path = '../dataset/all_data_weight'
     for file_name in os.listdir(folder_path):
         file_path = os.path.join(folder_path, file_name)
         if os.path.isfile(file_path) and file_name.endswith('.txt'):
