@@ -1,0 +1,14 @@
+<instance format="XCSP3" type="CSP">
+  <variables>
+    <array id="x0" size="[10]"> 0 1 </array>
+  </variables>
+  <constraints>
+    <knapsack>
+      <list> x0[] </list>
+      <weights> 10 2 6 11 21 4 8 3 8 10 </weights>
+      <condition> (le,20) </condition>
+      <profits> 20 4 3 9 13 2 3 4 7 8 </profits>
+      <condition> (ge,30) </condition>
+    </knapsack>
+  </constraints>
+</instance>
